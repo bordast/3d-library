@@ -1,0 +1,15 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Model {
+  id        String   @id @default(cuid())
+  name      String
+  format    String
+  fileUrl   String
+  createdAt DateTime @default(now())
+}
