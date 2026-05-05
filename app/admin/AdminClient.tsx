@@ -40,7 +40,6 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
     async function saveEdit(id: string) {
         const trimmed = editName.trim()
         if (!trimmed) return
-
         const res = await fetch(`/api/models/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -55,79 +54,137 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
 
     async function handleDelete(id: string) {
         if (!confirm('Delete this model?')) return
-
         const res = await fetch(`/api/models/${id}`, { method: 'DELETE' })
-        if (res.ok) {
-            setModels(prev => prev.filter(m => m.id !== id))
-        }
+        if (res.ok) setModels(prev => prev.filter(m => m.id !== id))
     }
 
     return (
-        <div>
-            <section>
-                <h2>Upload Model</h2>
-                <form onSubmit={handleUpload}>
-                    <input ref={nameRef} type="text" placeholder="Model name" required />
-                    <input ref={fileRef} type="file" accept=".glb,.gltf,.obj" required />
-                    <button type="submit" disabled={uploading}>
+        <div className="flex flex-col gap-8">
+
+            {/* Upload card */}
+            <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                <div className="flex flex-col gap-1 p-6 border-b border-border">
+                    <h2 className="text-base font-semibold leading-none tracking-tight">Upload Model</h2>
+                    <p className="text-sm text-muted-foreground">Add a new 3D model to your library. Supports .glb, .gltf, .obj</p>
+                </div>
+                <form onSubmit={handleUpload} className="p-6 flex flex-col sm:flex-row gap-3">
+                    <input
+                        ref={nameRef}
+                        type="text"
+                        placeholder="Model name"
+                        required
+                        className="flex h-9 w-full sm:max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                    <input
+                        ref={fileRef}
+                        type="file"
+                        accept=".glb,.gltf,.obj"
+                        required
+                        className="flex h-9 w-full sm:flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                    />
+                    <button
+                        type="submit"
+                        disabled={uploading}
+                        className="inline-flex items-center justify-center whitespace-nowrap rounded-md bg-primary text-primary-foreground text-sm font-medium h-9 px-4 shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                    >
                         {uploading ? 'Uploading…' : 'Upload'}
                     </button>
                 </form>
-            </section>
+            </div>
 
-            <section>
-                <h2>Models ({models.length})</h2>
+            {/* Models table card */}
+            <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex flex-col gap-1">
+                        <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
+                        <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
+                    </div>
+                </div>
+
                 {models.length === 0 ? (
-                    <p>No models yet.</p>
+                    <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+                        No models yet. Upload one above.
+                    </div>
                 ) : (
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Format</th>
-                                <th>Added</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {models.map(model => (
-                                <tr key={model.id}>
-                                    <td>
-                                        {editingId === model.id ? (
-                                            <input
-                                                value={editName}
-                                                onChange={e => setEditName(e.target.value)}
-                                                onKeyDown={e => {
-                                                    if (e.key === 'Enter') saveEdit(model.id)
-                                                    if (e.key === 'Escape') setEditingId(null)
-                                                }}
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            model.name
-                                        )}
-                                    </td>
-                                    <td>{model.format}</td>
-                                    <td>{new Date(model.createdAt).toLocaleDateString()}</td>
-                                    <td>
-                                        {editingId === model.id ? (
-                                            <>
-                                                <button onClick={() => saveEdit(model.id)}>Save</button>
-                                                <button onClick={() => setEditingId(null)}>Cancel</button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button onClick={() => startEdit(model)}>Rename</button>
-                                                <button onClick={() => handleDelete(model.id)}>Delete</button>
-                                            </>
-                                        )}
-                                    </td>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-border bg-muted/50">
+                                    <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
+                                    <th className="h-10 px-4 text-left font-medium text-muted-foreground">Format</th>
+                                    <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
+                                    <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {models.map(model => (
+                                    <tr key={model.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                                        <td className="px-6 py-3">
+                                            {editingId === model.id ? (
+                                                <input
+                                                    value={editName}
+                                                    onChange={e => setEditName(e.target.value)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter') saveEdit(model.id)
+                                                        if (e.key === 'Escape') setEditingId(null)
+                                                    }}
+                                                    autoFocus
+                                                    className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                />
+                                            ) : (
+                                                <span className="font-medium">{model.name}</span>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                {model.format}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-muted-foreground">
+                                            {new Date(model.createdAt).toLocaleDateString()}
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <div className="flex items-center justify-end gap-2">
+                                                {editingId === model.id ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => saveEdit(model.id)}
+                                                            className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-medium h-7 px-3 shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        >
+                                                            Save
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setEditingId(null)}
+                                                            className="inline-flex items-center justify-center rounded-md border border-border bg-background text-foreground text-xs font-medium h-7 px-3 shadow-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <button
+                                                            onClick={() => startEdit(model)}
+                                                            className="inline-flex items-center justify-center rounded-md border border-border bg-background text-foreground text-xs font-medium h-7 px-3 shadow-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        >
+                                                            Rename
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDelete(model.id)}
+                                                            className="inline-flex items-center justify-center rounded-md bg-destructive text-destructive-foreground text-xs font-medium h-7 px-3 shadow-sm transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
-            </section>
+            </div>
         </div>
     )
 }
