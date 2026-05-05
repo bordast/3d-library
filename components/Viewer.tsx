@@ -1,5 +1,12 @@
 'use client'
 
+// THREE.Clock is deprecated but @react-three/fiber v9 still uses it internally
+const _warn = console.warn
+console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('THREE.Clock')) return
+    _warn(...args)
+}
+
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF } from '@react-three/drei'

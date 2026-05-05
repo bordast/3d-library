@@ -1,8 +1,12 @@
-export default function AdminPage() {
+import { getModels } from '@/lib/db'
+import AdminClient from './AdminClient'
+
+export default async function AdminPage() {
+    const models = await getModels()
     return (
         <main>
             <h1>Admin Dashboard</h1>
-            <p>Models will appear here.</p>
+            <AdminClient initialModels={models} />
         </main>
     )
 }

@@ -1,10 +1,8 @@
-import { db } from '@/lib/db'
+import { getModels } from '@/lib/db'
 import ModelCard from '@/components/ModelCard'
 
 export default async function ModelsPage() {
-    const models = await db.model.findMany({
-        orderBy: { createdAt: 'desc' }
-    })
+    const models = await getModels()
 
     return (
         <main>
