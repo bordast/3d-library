@@ -1,6 +1,21 @@
 import { readFile, writeFile } from 'fs/promises'
 import path from 'path'
-import { randomUUID } from 'crypto'
+
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+}
+
+function uniqueSlug(base: string, existing: Set<string>): string {
+  if (!existing.has(base)) return base
+  let i = 2
+  while (existing.has(`${base}-${i}`)) i++
+  return `${base}-${i}`
+}
 
 export type Model = {
   id: string
@@ -37,8 +52,9 @@ export async function getModel(id: string): Promise<Model | undefined> {
 
 export async function createModel(data: { name: string; format: string; fileUrl: string }): Promise<Model> {
   const models = await readModels()
+  const existing = new Set(models.map(m => m.id))
   const model: Model = {
-    id: randomUUID(),
+    id: uniqueSlug(toSlug(data.name), existing),
     ...data,
     createdAt: new Date().toISOString(),
   }

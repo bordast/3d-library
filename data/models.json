@@ -1,9 +1,23 @@
 [
   {
-    "id": "94643c82-fa95-4847-8927-ecb202598d1a",
-    "name": "Model 1 Name",
+    "id": "canon-eos-m50-mark-ii",
+    "name": "Canon EOS M50 Mark II",
     "format": ".glb",
     "fileUrl": "/uploads/1778010830145-Canon_M50_Mark_II_v03_04.glb",
     "createdAt": "2026-05-05T19:53:50.289Z"
+  },
+  {
+    "id": "arrow-solid",
+    "name": "Arrow Solid",
+    "format": ".glb",
+    "fileUrl": "/uploads/1778056153547-arrow_solid.glb",
+    "createdAt": "2026-05-06T08:29:13.549Z"
+  },
+  {
+    "id": "arrow-glass",
+    "name": "Arrow Glass",
+    "format": ".glb",
+    "fileUrl": "/uploads/1778056161500-arrow_glass.glb",
+    "createdAt": "2026-05-06T08:29:21.504Z"
   }
 ]
