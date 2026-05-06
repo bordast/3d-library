@@ -1,5 +1,5 @@
 import { getModels } from '@/lib/db'
-import ModelCard from '@/components/ModelCard'
+import ModelsClient from './ModelsClient'
 import Link from 'next/link'
 
 export default async function ModelsPage() {
@@ -30,11 +30,7 @@ export default async function ModelsPage() {
                     </Link>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {models.map(model => (
-                        <ModelCard key={model.id} model={model} />
-                    ))}
-                </div>
+                <ModelsClient models={models} />
             )}
         </div>
     )
