@@ -6,13 +6,13 @@ type Context = { params: Promise<{ id: string }> }
 
 export async function PUT(request: Request, { params }: Context) {
     const { id } = await params
-    const { name } = await request.json()
+    const { name, category } = await request.json()
 
     if (!name?.trim()) {
         return Response.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    const model = await updateModel(id, { name: name.trim() })
+    const model = await updateModel(id, { name: name.trim(), category })
     if (!model) return Response.json({ error: 'Not found' }, { status: 404 })
 
     return Response.json(model)

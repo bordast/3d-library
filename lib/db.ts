@@ -20,6 +20,7 @@ function uniqueSlug(base: string, existing: Set<string>): string {
 export type Model = {
   id: string
   name: string
+  category: string
   format: string
   fileUrl: string
   createdAt: string
@@ -30,7 +31,8 @@ const DATA_FILE = path.join(process.cwd(), 'data/models.json')
 async function readModels(): Promise<Model[]> {
   try {
     const content = await readFile(DATA_FILE, 'utf-8')
-    return JSON.parse(content)
+    const models = JSON.parse(content) as (Omit<Model, 'category'> & { category?: string })[]
+    return models.map(m => ({ ...m, category: m.category ?? 'default' }))
   } catch {
     return []
   }
@@ -50,12 +52,15 @@ export async function getModel(id: string): Promise<Model | undefined> {
   return models.find(m => m.id === id)
 }
 
-export async function createModel(data: { name: string; format: string; fileUrl: string }): Promise<Model> {
+export async function createModel(data: { name: string; category?: string; format: string; fileUrl: string }): Promise<Model> {
   const models = await readModels()
   const existing = new Set(models.map(m => m.id))
   const model: Model = {
     id: uniqueSlug(toSlug(data.name), existing),
-    ...data,
+    name: data.name,
+    category: data.category?.trim() || 'uncategorised',
+    format: data.format,
+    fileUrl: data.fileUrl,
     createdAt: new Date().toISOString(),
   }
   models.push(model)
@@ -63,11 +68,15 @@ export async function createModel(data: { name: string; format: string; fileUrl:
   return model
 }
 
-export async function updateModel(id: string, data: { name: string }): Promise<Model | null> {
+export async function updateModel(id: string, data: { name: string; category?: string }): Promise<Model | null> {
   const models = await readModels()
   const idx = models.findIndex(m => m.id === id)
   if (idx === -1) return null
-  models[idx] = { ...models[idx], ...data }
+  models[idx] = {
+    ...models[idx],
+    name: data.name,
+    category: data.category?.trim() || models[idx].category,
+  }
   await writeModels(models)
   return models[idx]
 }

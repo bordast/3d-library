@@ -101,28 +101,64 @@ export default function Viewer({ url }: { url: string }) {
         { label: 'Bottom', position: [0, -d, 0] as [number, number, number] },
     ]
 
+    const RENDER_MODES: { value: RenderMode; label: string }[] = [
+        { value: 'solid', label: 'Solid' },
+        { value: 'wireframe', label: 'Wireframe' },
+        { value: 'uv', label: 'UV' },
+    ]
+
     return (
-        <div>
-            <div style={{ marginBottom: '8px', display: 'flex', gap: '8px' }}>
-                <button onClick={() => setMode('solid')}>Solid</button>
-                <button onClick={() => setMode('wireframe')}>Wireframe</button>
-                <button onClick={() => setMode('uv')}>UV</button>
-            </div>
-
-            <div style={{ marginBottom: '8px', display: 'flex', gap: '8px' }}>
-                {PRESETS.map(({ label, position }) => (
-                    <button key={label} onClick={() => moveTo(...position)}>{label}</button>
-                ))}
-                <button onClick={() => moveTo(0, maxDim * 0.5, maxDim * 2)}>Reset</button>
-            </div>
-
-            <div style={{ width: '100%', height: '500px' }}>
+        <div className="flex h-[520px]">
+            <div className="flex-1 min-w-0">
                 <Canvas camera={{ position: [0, 0, 5] }}>
                     <ambientLight intensity={1} />
                     <directionalLight position={[5, 5, 5]} intensity={1} />
                     <Model url={url} mode={mode} onLoad={setMaxDim} />
                     <CameraController controlsRef={controlsRef} minDistance={maxDim * 0.5} maxDistance={maxDim * 10} />
                 </Canvas>
+            </div>
+
+            <div className="w-44 shrink-0 border-l border-border bg-card flex flex-col gap-5 p-4 overflow-y-auto">
+                <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Display</p>
+                    <div className="flex flex-col gap-1">
+                        {RENDER_MODES.map(({ value, label }) => (
+                            <button
+                                key={value}
+                                onClick={() => setMode(value)}
+                                className={[
+                                    'w-full rounded-md px-3 py-1.5 text-sm font-medium text-left transition-colors',
+                                    mode === value
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'text-foreground hover:bg-accent hover:text-accent-foreground',
+                                ].join(' ')}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Camera</p>
+                    <div className="grid grid-cols-2 gap-1">
+                        {PRESETS.map(({ label, position }) => (
+                            <button
+                                key={label}
+                                onClick={() => moveTo(...position)}
+                                className="rounded-md px-2 py-1.5 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => moveTo(0, maxDim * 0.5, maxDim * 2)}
+                        className="mt-1 w-full rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                    >
+                        Reset
+                    </button>
+                </div>
             </div>
         </div>
     )

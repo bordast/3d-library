@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     const formData = await request.formData()
 
     const name = formData.get('name') as string
+    const category = formData.get('category') as string | null
     const file = formData.get('file') as File
 
     if (!name || !file) {
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
 
     const model = await createModel({
         name,
+        category: category ?? undefined,
         format: ext,
         fileUrl: `/uploads/${filename}`,
     })
