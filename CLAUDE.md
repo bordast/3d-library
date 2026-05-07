@@ -60,7 +60,7 @@ Route handlers live under `app/api/`. They import from `@/lib/db`. File uploads 
 - `Viewer` is a full-featured viewer used on the detail page. It must be dynamically imported with `ssr: false`.
 - `ModelPreview` is a minimal canvas for card thumbnails. Also `ssr: false`.
 - Three.js `OrbitControls` comes from `@react-three/drei`, typed as `OrbitControlsType` from `three-stdlib`.
-- The `THREE.Clock` deprecation warning is suppressed in `Viewer.tsx` because `@react-three/fiber` v9 triggers it internally; do not remove that suppression.
+- The `THREE.Clock` deprecation warning is suppressed at the module level in `Viewer.tsx` and `ModelPreview.tsx`. This is necessary because `@react-three/fiber` v9 still uses the deprecated API. Do not remove the `console.warn` patch.
 
 ### Styling
 Design tokens are CSS custom properties defined in `globals.css` (shadcn/ui-style palette). Tailwind v4 picks them up via `@theme inline`. Use semantic tokens (`bg-background`, `text-muted-foreground`, `border-border`, etc.) — never raw hex or hardcoded colors. Dark mode uses the `.dark` class on `<html>`.

@@ -7,6 +7,7 @@ import type { Model } from '@/lib/db'
 export default function AdminClient({ initialModels }: { initialModels: Model[] }) {
     const [models, setModels] = useState<Model[]>(initialModels)
     const [uploading, setUploading] = useState(false)
+    const [uploadError, setUploadError] = useState<string | null>(null)
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editName, setEditName] = useState('')
     const [editCategory, setEditCategory] = useState('')
@@ -23,19 +24,30 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
         if (!name || !file) return
 
         setUploading(true)
+        setUploadError(null)
         const body = new FormData()
         body.append('name', name)
         const cat = categoryRef.current?.value.trim()
         if (cat) body.append('category', cat)
         body.append('file', file)
 
-        const res = await fetch('/api/models', { method: 'POST', body })
-        if (res.ok) {
-            const model: Model = await res.json()
-            setModels(prev => [model, ...prev])
-            form.reset()
+        try {
+            const res = await fetch('/api/models', { method: 'POST', body })
+            if (res.ok) {
+                const model: Model = await res.json()
+                setModels(prev => [model, ...prev])
+                form.reset()
+            } else if (res.status === 413) {
+                setUploadError('File is too large. Try a smaller file or upload directly via the server.')
+            } else {
+                const data = await res.json().catch(() => ({}))
+                setUploadError(data.error ?? `Upload failed (${res.status})`)
+            }
+        } catch {
+            setUploadError('Network error — upload could not be completed.')
+        } finally {
+            setUploading(false)
         }
-        setUploading(false)
     }
 
     function startEdit(model: Model) {
@@ -112,6 +124,11 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
                         ) : 'Upload'}
                     </button>
                 </form>
+                {uploadError && (
+                    <div className="px-6 pb-4 text-sm text-destructive">
+                        {uploadError}
+                    </div>
+                )}
             </div>
 
             {/* Models table card */}
@@ -237,7 +254,7 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
                 <div className="relative z-50 w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg">
                     <h2 className="text-lg font-semibold text-foreground">Are you absolutely sure?</h2>
                     <p className="mt-2 text-sm text-muted-foreground">
-                        This will permanently delete{' '}
+                        This action permanently delete{' '}
                         <span className="font-medium text-foreground">{target.name}</span>
                         , uploaded on{' '}
                         <span className="font-medium text-foreground">

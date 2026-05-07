@@ -7,11 +7,12 @@ console.warn = (...args: unknown[]) => {
     _warn(...args)
 }
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, Suspense } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { OrbitControls, useGLTF } from '@react-three/drei'
+import { OrbitControls, useGLTF, Html } from '@react-three/drei'
 import { Box3, Vector3, EdgesGeometry } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
+import { Loader2 } from 'lucide-react'
 
 type RenderMode = 'solid' | 'wireframe' | 'uv'
 
@@ -113,7 +114,9 @@ export default function Viewer({ url }: { url: string }) {
                 <Canvas camera={{ position: [0, 0, 5] }}>
                     <ambientLight intensity={1} />
                     <directionalLight position={[5, 5, 5]} intensity={1} />
-                    <Model url={url} mode={mode} onLoad={setMaxDim} />
+                    <Suspense fallback={<Html center><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></Html>}>
+                        <Model url={url} mode={mode} onLoad={setMaxDim} />
+                    </Suspense>
                     <CameraController controlsRef={controlsRef} minDistance={maxDim * 0.5} maxDistance={maxDim * 10} />
                 </Canvas>
             </div>

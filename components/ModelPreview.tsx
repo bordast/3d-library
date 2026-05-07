@@ -1,5 +1,12 @@
 'use client'
 
+// THREE.Clock is deprecated but @react-three/fiber v9 still uses it internally
+const _warn = console.warn
+console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('THREE.Clock')) return
+    _warn(...args)
+}
+
 import { useEffect, useMemo, Suspense, Component, ReactNode } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
@@ -47,16 +54,6 @@ function PreviewModel({ url }: { url: string }) {
 }
 
 export default function ModelPreview({ url }: { url: string }) {
-    // THREE 0.184 deprecated Clock; R3F 9.x still uses it internally — suppress until R3F updates.
-    useEffect(() => {
-        const original = console.warn
-        console.warn = (...args: unknown[]) => {
-            if (typeof args[0] === 'string' && args[0].includes('THREE.Clock')) return
-            original(...args)
-        }
-        return () => { console.warn = original }
-    }, [])
-
     return (
         <PreviewErrorBoundary>
             <Canvas camera={{ position: [0, 0, 5] }} style={{ width: '100%', height: '100%' }} gl={{ antialias: true }}>
