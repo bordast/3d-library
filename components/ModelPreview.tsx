@@ -7,10 +7,11 @@ console.warn = (...args: unknown[]) => {
     _warn(...args)
 }
 
-import { useEffect, useMemo, Suspense, Component, ReactNode } from 'react'
+import { useState, useEffect, useMemo, useCallback, Suspense, Component, ReactNode } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { useGLTF } from '@react-three/drei'
+import { useGLTF, Environment } from '@react-three/drei'
 import { Box3, Vector3, PerspectiveCamera } from 'three'
+import { Loader2 } from 'lucide-react'
 
 class PreviewErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
     state = { failed: false }
@@ -26,7 +27,7 @@ class PreviewErrorBoundary extends Component<{ children: ReactNode }, { failed: 
     }
 }
 
-function PreviewModel({ url }: { url: string }) {
+function PreviewModel({ url, onLoad }: { url: string; onLoad: () => void }) {
     const { scene: rawScene } = useGLTF(url)
     const scene = useMemo(() => rawScene.clone(true), [rawScene])
     const { camera } = useThree()
@@ -43,27 +44,40 @@ function PreviewModel({ url }: { url: string }) {
         scene.position.sub(center)
 
         const maxDim = Math.max(size.x, size.y, size.z)
-        cam.position.set(maxDim * 0.8, maxDim * 0.6, maxDim * 0.5)
+        cam.position.set(maxDim * 0.5, maxDim * 0.3, maxDim * .3)
         cam.lookAt(0, 0, 0)
         cam.near = maxDim * 0.01
         cam.far = maxDim * 100
         cam.updateProjectionMatrix()
-    }, [scene, camera])
+
+        onLoad()
+    }, [scene, camera, onLoad])
 
     return <primitive object={scene} />
 }
 
 export default function ModelPreview({ url }: { url: string }) {
+    const [loaded, setLoaded] = useState(false)
+
+    useEffect(() => { setLoaded(false) }, [url])
+
+    const handleLoad = useCallback(() => setLoaded(true), [])
+
     return (
         <PreviewErrorBoundary>
-            <Canvas camera={{ position: [0, 0, 5] }} style={{ width: '100%', height: '100%' }} gl={{ antialias: true }}>
-                <ambientLight intensity={1.2} />
-                <directionalLight position={[5, 5, 5]} intensity={1} />
-                <directionalLight position={[-3, 2, -3]} intensity={0.4} />
-                <Suspense fallback={null}>
-                    <PreviewModel url={url} />
-                </Suspense>
-            </Canvas>
+            <div className="relative w-full h-full">
+                {!loaded && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                )}
+                <Canvas camera={{ position: [0, 0, 5] }} style={{ width: '100%', height: '100%' }} gl={{ antialias: true }}>
+                    <Environment preset="sunset" />
+                    <Suspense fallback={null}>
+                        <PreviewModel url={url} onLoad={handleLoad} />
+                    </Suspense>
+                </Canvas>
+            </div>
         </PreviewErrorBoundary>
     )
 }

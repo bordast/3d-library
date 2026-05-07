@@ -7,9 +7,9 @@ console.warn = (...args: unknown[]) => {
     _warn(...args)
 }
 
-import { useState, useRef, useEffect, useMemo, Suspense } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { OrbitControls, useGLTF, Html } from '@react-three/drei'
+import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { Box3, Vector3, EdgesGeometry } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Loader2 } from 'lucide-react'
@@ -81,7 +81,15 @@ function CameraController({ controlsRef, minDistance, maxDistance }: {
 export default function Viewer({ url }: { url: string }) {
     const [mode, setMode] = useState<RenderMode>('solid')
     const [maxDim, setMaxDim] = useState(1)
+    const [loaded, setLoaded] = useState(false)
     const controlsRef = useRef<OrbitControlsType | null>(null)
+
+    useEffect(() => { setLoaded(false) }, [url])
+
+    const handleLoad = useCallback((dim: number) => {
+        setMaxDim(dim)
+        setLoaded(true)
+    }, [])
 
     const moveTo = (x: number, y: number, z: number) => {
         const controls = controlsRef.current
@@ -110,12 +118,16 @@ export default function Viewer({ url }: { url: string }) {
 
     return (
         <div className="flex h-[520px]">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 relative">
+                {!loaded && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                )}
                 <Canvas camera={{ position: [0, 0, 5] }}>
-                    <ambientLight intensity={1} />
-                    <directionalLight position={[5, 5, 5]} intensity={1} />
-                    <Suspense fallback={<Html center><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></Html>}>
-                        <Model url={url} mode={mode} onLoad={setMaxDim} />
+                    <Environment preset="sunset" />
+                    <Suspense fallback={null}>
+                        <Model url={url} mode={mode} onLoad={handleLoad} />
                     </Suspense>
                     <CameraController controlsRef={controlsRef} minDistance={maxDim * 0.5} maxDistance={maxDim * 10} />
                 </Canvas>
@@ -156,7 +168,7 @@ export default function Viewer({ url }: { url: string }) {
                         ))}
                     </div>
                     <button
-                        onClick={() => moveTo(0, maxDim * 0.5, maxDim * 2)}
+                        onClick={() => moveTo(0, maxDim * 0.3, maxDim * 0.5)}
                         className="mt-1 w-full rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
                     >
                         Reset
