@@ -1,18 +1,38 @@
-[
-  {
-    "id": "a",
-    "name": "Cars",
-    "category": "Vehicle",
-    "format": ".glb",
-    "fileUrl": "/uploads/1778148870444-generic_passenger_car_pack.glb",
-    "createdAt": "2026-05-07T10:14:30.522Z"
-  },
-  {
-    "id": "b",
-    "name": "City",
-    "category": "City",
-    "format": ".glb",
-    "fileUrl": "/uploads/city.glb",
-    "createdAt": "2026-05-07T10:14:32.522Z"
-  }
-]
+{
+  "categories": [
+    {
+      "id": "city",
+      "name": "City"
+    },
+    {
+      "id": "vehicle",
+      "name": "Vehicle"
+    }
+  ],
+  "models": [
+    {
+      "id": "a",
+      "name": "Cars",
+      "category": "Vehicle",
+      "format": ".glb",
+      "fileUrl": "/uploads/1778148870444-generic_passenger_car_pack.glb",
+      "createdAt": "2026-05-07T10:14:30.522Z"
+    },
+    {
+      "id": "b",
+      "name": "City",
+      "category": "City",
+      "format": ".glb",
+      "fileUrl": "/uploads/city.glb",
+      "createdAt": "2026-05-07T10:14:32.522Z"
+    },
+    {
+      "id": "toyota-supra",
+      "name": "Toyota Supra",
+      "category": "Vehicle",
+      "format": ".glb",
+      "fileUrl": "/uploads/1778157208220-toyota_gr_supra.glb",
+      "createdAt": "2026-05-07T12:33:28.387Z"
+    }
+  ]
+}

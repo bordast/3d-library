@@ -17,6 +17,11 @@ function uniqueSlug(base: string, existing: Set<string>): string {
   return `${base}-${i}`
 }
 
+export type Category = {
+  id: string
+  name: string
+}
+
 export type Model = {
   id: string
   name: string
@@ -26,66 +31,137 @@ export type Model = {
   createdAt: string
 }
 
+type DbData = {
+  categories: Category[]
+  models: Model[]
+}
+
 const DATA_FILE = path.join(process.cwd(), 'data/models.json')
 
-async function readModels(): Promise<Model[]> {
+async function readData(): Promise<DbData> {
   try {
     const content = await readFile(DATA_FILE, 'utf-8')
-    const models = JSON.parse(content) as (Omit<Model, 'category'> & { category?: string })[]
-    return models.map(m => ({ ...m, category: m.category ?? 'default' }))
+    const parsed = JSON.parse(content)
+    if (Array.isArray(parsed)) {
+      return {
+        categories: [],
+        models: parsed.map(m => ({ ...m, category: m.category ?? 'uncategorised' })),
+      }
+    }
+    return {
+      categories: parsed.categories ?? [],
+      models: (parsed.models ?? []).map((m: Partial<Model>) => ({
+        ...m,
+        category: m.category ?? 'uncategorised',
+      })),
+    }
   } catch {
-    return []
+    return { categories: [], models: [] }
   }
 }
 
-async function writeModels(models: Model[]): Promise<void> {
-  await writeFile(DATA_FILE, JSON.stringify(models, null, 2))
+async function writeData(data: DbData): Promise<void> {
+  await writeFile(DATA_FILE, JSON.stringify(data, null, 2))
 }
 
+// Category CRUD
+
+export async function getCategories(): Promise<Category[]> {
+  const data = await readData()
+  return data.categories
+}
+
+export async function createCategory(name: string): Promise<Category> {
+  const data = await readData()
+  const existing = new Set(data.categories.map(c => c.id))
+  const id = uniqueSlug(toSlug(name), existing)
+  const category: Category = { id, name: name.trim() }
+  data.categories.push(category)
+  await writeData(data)
+  return category
+}
+
+export async function updateCategory(id: string, name: string): Promise<Category | null> {
+  const data = await readData()
+  const idx = data.categories.findIndex(c => c.id === id)
+  if (idx === -1) return null
+  const oldName = data.categories[idx].name
+  data.categories[idx] = { id, name: name.trim() }
+  data.models = data.models.map(m =>
+    m.category === oldName ? { ...m, category: name.trim() } : m
+  )
+  await writeData(data)
+  return data.categories[idx]
+}
+
+export async function deleteCategory(id: string): Promise<Category | null> {
+  const data = await readData()
+  const idx = data.categories.findIndex(c => c.id === id)
+  if (idx === -1) return null
+  const [removed] = data.categories.splice(idx, 1)
+  data.models = data.models.map(m =>
+    m.category === removed.name ? { ...m, category: 'uncategorised' } : m
+  )
+  await writeData(data)
+  return removed
+}
+
+// Model CRUD
+
 export async function getModels(): Promise<Model[]> {
-  const models = await readModels()
-  return models.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const data = await readData()
+  return data.models.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
 }
 
 export async function getModel(id: string): Promise<Model | undefined> {
-  const models = await readModels()
-  return models.find(m => m.id === id)
+  const data = await readData()
+  return data.models.find(m => m.id === id)
 }
 
-export async function createModel(data: { name: string; category?: string; format: string; fileUrl: string }): Promise<Model> {
-  const models = await readModels()
-  const existing = new Set(models.map(m => m.id))
+export async function createModel(input: {
+  name: string
+  category?: string
+  format: string
+  fileUrl: string
+}): Promise<Model> {
+  const data = await readData()
+  const existing = new Set(data.models.map(m => m.id))
   const model: Model = {
-    id: uniqueSlug(toSlug(data.name), existing),
-    name: data.name,
-    category: data.category?.trim() || 'uncategorised',
-    format: data.format,
-    fileUrl: data.fileUrl,
+    id: uniqueSlug(toSlug(input.name), existing),
+    name: input.name,
+    category: input.category?.trim() || 'uncategorised',
+    format: input.format,
+    fileUrl: input.fileUrl,
     createdAt: new Date().toISOString(),
   }
-  models.push(model)
-  await writeModels(models)
+  data.models.push(model)
+  await writeData(data)
   return model
 }
 
-export async function updateModel(id: string, data: { name: string; category?: string }): Promise<Model | null> {
-  const models = await readModels()
-  const idx = models.findIndex(m => m.id === id)
+export async function updateModel(
+  id: string,
+  update: { name: string; category?: string }
+): Promise<Model | null> {
+  const data = await readData()
+  const idx = data.models.findIndex(m => m.id === id)
   if (idx === -1) return null
-  models[idx] = {
-    ...models[idx],
-    name: data.name,
-    category: data.category?.trim() || models[idx].category,
+  data.models[idx] = {
+    ...data.models[idx],
+    name: update.name,
+    category: update.category?.trim() || data.models[idx].category,
   }
-  await writeModels(models)
-  return models[idx]
+  await writeData(data)
+  return data.models[idx]
 }
 
 export async function deleteModel(id: string): Promise<Model | null> {
-  const models = await readModels()
-  const idx = models.findIndex(m => m.id === id)
+  const data = await readData()
+  const idx = data.models.findIndex(m => m.id === id)
   if (idx === -1) return null
-  const [removed] = models.splice(idx, 1)
-  await writeModels(models)
+  const [removed] = data.models.splice(idx, 1)
+  await writeData(data)
   return removed
 }
