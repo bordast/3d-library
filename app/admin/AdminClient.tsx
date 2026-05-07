@@ -1,8 +1,19 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import type { Model, Category } from '@/lib/db'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button, buttonVariants } from '@/components/ui/button'
 
 export default function AdminClient({
     initialModels,
@@ -161,12 +172,6 @@ export default function AdminClient({
 
     const inputCls = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
     const selectCls = 'flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer'
-    const btnPrimary = 'inline-flex items-center justify-center whitespace-nowrap rounded-md bg-primary text-primary-foreground text-sm font-medium h-9 px-4 shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
-    const btnSecondary = 'inline-flex items-center justify-center rounded-md border border-border bg-background text-foreground text-sm font-medium h-9 px-4 shadow-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-    const btnDestructive = 'inline-flex items-center justify-center rounded-md bg-destructive text-destructive-foreground text-sm font-medium h-9 px-4 shadow transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-    const btnPrimaryXs = btnPrimary.replace('text-sm', 'text-xs').replace('h-9', 'h-7').replace('px-4', 'px-3')
-    const btnSecondaryXs = btnSecondary.replace('text-sm', 'text-xs').replace('h-9', 'h-7').replace('px-4', 'px-3')
-    const btnDestructiveXs = btnDestructive.replace('text-sm', 'text-xs').replace('h-9', 'h-7').replace('px-4', 'px-3')
 
     return (
         <>
@@ -187,7 +192,7 @@ export default function AdminClient({
                             placeholder="New category name"
                             className={`${inputCls} max-w-xs`}
                         />
-                        <button type="submit" className={btnPrimary}>Add</button>
+                        <Button type="submit" size="sm">Add</Button>
                     </form>
                     {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
 
@@ -209,16 +214,16 @@ export default function AdminClient({
                                                 autoFocus
                                                 className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                             />
-                                            <button onClick={() => saveEditCategory(cat.id)} className={btnPrimaryXs}>Save</button>
-                                            <button onClick={() => setEditingCategoryId(null)} className={btnSecondaryXs}>Cancel</button>
+                                            <Button onClick={() => saveEditCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                            <Button onClick={() => setEditingCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
                                         </>
                                     ) : (
                                         <>
                                             <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
                                                 {cat.name}
                                             </span>
-                                            <button onClick={() => startEditCategory(cat)} className={btnSecondaryXs}>Rename</button>
-                                            <button onClick={() => setDeleteCategoryTargetId(cat.id)} className={btnDestructiveXs}>Delete</button>
+                                            <Button onClick={() => startEditCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
+                                            <Button onClick={() => setDeleteCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
                                         </>
                                     )}
                                 </div>
@@ -255,14 +260,14 @@ export default function AdminClient({
                         required
                         className="flex h-9 w-full sm:flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                     />
-                    <button type="submit" disabled={uploading} className={btnPrimary}>
+                    <Button type="submit" disabled={uploading} size="sm">
                         {uploading ? (
                             <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <Spinner className="mr-2" />
                                 Uploading…
                             </>
                         ) : 'Upload'}
-                    </button>
+                    </Button>
                 </form>
                 {uploadError && (
                     <div className="px-6 pb-4 text-sm text-destructive">{uploadError}</div>
@@ -343,13 +348,13 @@ export default function AdminClient({
                                             <div className="flex items-center justify-end gap-2">
                                                 {editingId === model.id ? (
                                                     <>
-                                                        <button onClick={() => saveEdit(model.id)} className={btnPrimaryXs}>Save</button>
-                                                        <button onClick={() => setEditingId(null)} className={btnSecondaryXs}>Cancel</button>
+                                                        <Button onClick={() => saveEdit(model.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                        <Button onClick={() => setEditingId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <button onClick={() => startEdit(model)} className={btnSecondaryXs}>Edit</button>
-                                                        <button onClick={() => setDeleteTargetId(model.id)} className={btnDestructiveXs}>Delete</button>
+                                                        <Button onClick={() => startEdit(model)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
+                                                        <Button onClick={() => setDeleteTargetId(model.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
                                                     </>
                                                 )}
                                             </div>
@@ -364,54 +369,57 @@ export default function AdminClient({
         </div>
 
         {/* Delete model dialog */}
-        {deleteTargetId && (() => {
-            const target = models.find(m => m.id === deleteTargetId)!
-            return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div className="fixed inset-0 bg-black/50" onClick={() => setDeleteTargetId(null)} />
-                    <div className="relative z-50 w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg">
-                        <h2 className="text-lg font-semibold text-foreground">Are you absolutely sure?</h2>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            This permanently deletes{' '}
-                            <span className="font-medium text-foreground">{target.name}</span>
-                            , uploaded on{' '}
-                            <span className="font-medium text-foreground">
-                                {new Date(target.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
-                            </span>
-                            . This action cannot be undone.
-                        </p>
-                        <div className="mt-6 flex justify-end gap-3">
-                            <button onClick={() => setDeleteTargetId(null)} className={btnSecondary}>Cancel</button>
-                            <button onClick={confirmDelete} className={btnDestructive}>Delete</button>
-                        </div>
-                    </div>
-                </div>
-            )
-        })()}
+        <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null) }}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        {deleteTargetId && (() => {
+                            const target = models.find(m => m.id === deleteTargetId)!
+                            return <>
+                                This permanently deletes{' '}
+                                <span className="font-medium text-foreground">{target.name}</span>
+                                , uploaded on{' '}
+                                <span className="font-medium text-foreground">
+                                    {new Date(target.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                                </span>
+                                . This action cannot be undone.
+                            </>
+                        })()}
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDelete} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
         {/* Delete category dialog */}
-        {deleteCategoryTargetId && (() => {
-            const target = categories.find(c => c.id === deleteCategoryTargetId)!
-            const affected = models.filter(m => m.category === target.name).length
-            return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div className="fixed inset-0 bg-black/50" onClick={() => setDeleteCategoryTargetId(null)} />
-                    <div className="relative z-50 w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg">
-                        <h2 className="text-lg font-semibold text-foreground">Delete category?</h2>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            This will delete <span className="font-medium text-foreground">{target.name}</span>.
-                            {affected > 0 && (
-                                <> {affected} {affected === 1 ? 'model' : 'models'} will be set to uncategorised.</>
-                            )}
-                        </p>
-                        <div className="mt-6 flex justify-end gap-3">
-                            <button onClick={() => setDeleteCategoryTargetId(null)} className={btnSecondary}>Cancel</button>
-                            <button onClick={confirmDeleteCategory} className={btnDestructive}>Delete</button>
-                        </div>
-                    </div>
-                </div>
-            )
-        })()}
+        <AlertDialog open={!!deleteCategoryTargetId} onOpenChange={(open) => { if (!open) setDeleteCategoryTargetId(null) }}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Delete category?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        {deleteCategoryTargetId && (() => {
+                            const target = categories.find(c => c.id === deleteCategoryTargetId)!
+                            const affected = models.filter(m => m.category === target.name).length
+                            return <>
+                                This will delete{' '}
+                                <span className="font-medium text-foreground">{target.name}</span>.
+                                {affected > 0 && (
+                                    <> {affected} {affected === 1 ? 'model' : 'models'} will be set to uncategorised.</>
+                                )}
+                            </>
+                        })()}
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
         </>
     )
 }

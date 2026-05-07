@@ -12,7 +12,7 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { Box3, Vector3, EdgesGeometry } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
-import { Loader2 } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 
 type RenderMode = 'solid' | 'wireframe' | 'uv'
 
@@ -84,11 +84,13 @@ export default function Viewer({ url }: { url: string }) {
     const [loaded, setLoaded] = useState(false)
     const controlsRef = useRef<OrbitControlsType | null>(null)
 
-    useEffect(() => { setLoaded(false) }, [url])
+    useEffect(() => {
+        setLoaded(false)
+    }, [url])
 
     const handleLoad = useCallback((dim: number) => {
         setMaxDim(dim)
-        setLoaded(true)
+        setTimeout(() => setLoaded(true), 300)
     }, [])
 
     const moveTo = (x: number, y: number, z: number) => {
@@ -121,7 +123,7 @@ export default function Viewer({ url }: { url: string }) {
             <div className="flex-1 min-w-0 relative">
                 {!loaded && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        <Spinner className="size-6 text-muted-foreground" />
                     </div>
                 )}
                 <Canvas camera={{ position: [0, 0, 5] }}>

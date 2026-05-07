@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import Link from 'next/link'
 import './globals.css'
 import ThemeToggle from '@/components/ThemeToggle'
+import NavLinks from '@/components/NavLinks'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
@@ -22,14 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                             <BoxIcon />
                             <span>3D Library</span>
                         </Link>
-                        <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Link href="/models" className="px-3 py-1.5 rounded-md transition-colors hover:text-foreground hover:bg-accent">
-                                Models
-                            </Link>
-                            <Link href="/admin" className="px-3 py-1.5 rounded-md transition-colors hover:text-foreground hover:bg-accent">
-                                Admin
-                            </Link>
-                        </nav>
+                        <NavLinks />
                         <div className="ml-auto">
                             <ThemeToggle />
                         </div>

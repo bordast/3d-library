@@ -12,6 +12,7 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { useGLTF, Environment } from '@react-three/drei'
 import { Box3, Vector3, PerspectiveCamera } from 'three'
 import { Loader2 } from 'lucide-react'
+import { Spinner } from './ui/spinner'
 
 class PreviewErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
     state = { failed: false }
@@ -68,7 +69,7 @@ export default function ModelPreview({ url }: { url: string }) {
             <div className="relative w-full h-full">
                 {!loaded && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        <Spinner className="size-6 text-muted-foreground" />
                     </div>
                 )}
                 <Canvas camera={{ position: [0, 0, 5] }} style={{ width: '100%', height: '100%' }} gl={{ antialias: true }}>
