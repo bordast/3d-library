@@ -29,7 +29,7 @@ function Model({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (
         scene.position.sub(center)
 
         const maxDim = Math.max(size.x, size.y, size.z)
-        camera.position.set(0, maxDim * 0.5, maxDim * 2)
+        camera.position.set(0, maxDim * 1, maxDim * 1)
         camera.lookAt(0, 0, 0)
         camera.near = maxDim * 0.01
         camera.far = maxDim * 100

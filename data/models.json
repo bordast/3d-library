@@ -1,26 +1,10 @@
 [
   {
-    "id": "canon-eos-m50-mark-ii",
-    "name": "Canon EOS M50 Mark II",
-    "category": "Camera",
+    "id": "cars",
+    "name": "Cars",
+    "category": "Vehicle",
     "format": ".glb",
-    "fileUrl": "/uploads/1778010830145-Canon_M50_Mark_II_v03_04.glb",
-    "createdAt": "2026-05-05T19:53:50.289Z"
-  },
-  {
-    "id": "arrow-solid",
-    "name": "Arrow Solid",
-    "category": "Arrow",
-    "format": ".glb",
-    "fileUrl": "/uploads/1778056153547-arrow_solid.glb",
-    "createdAt": "2026-05-06T08:29:13.549Z"
-  },
-  {
-    "id": "arrow-glass",
-    "name": "Arrow Glass",
-    "category": "Arrow",
-    "format": ".glb",
-    "fileUrl": "/uploads/1778056161500-arrow_glass.glb",
-    "createdAt": "2026-05-06T08:29:21.504Z"
+    "fileUrl": "/uploads/1778145848953-generic_passenger_car_pack.glb",
+    "createdAt": "2026-05-07T09:24:08.978Z"
   }
 ]

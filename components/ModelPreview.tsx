@@ -36,7 +36,7 @@ function PreviewModel({ url }: { url: string }) {
         scene.position.sub(center)
 
         const maxDim = Math.max(size.x, size.y, size.z)
-        cam.position.set(maxDim * 0.8, maxDim * 0.6, maxDim * 1.8)
+        cam.position.set(maxDim * 0.8, maxDim * 0.6, maxDim * 0.5)
         cam.lookAt(0, 0, 0)
         cam.near = maxDim * 0.01
         cam.far = maxDim * 100

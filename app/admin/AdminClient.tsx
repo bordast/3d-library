@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { Loader2 } from 'lucide-react'
 import type { Model } from '@/lib/db'
 
 export default function AdminClient({ initialModels }: { initialModels: Model[] }) {
@@ -9,6 +10,7 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editName, setEditName] = useState('')
     const [editCategory, setEditCategory] = useState('')
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
     const nameRef = useRef<HTMLInputElement>(null)
     const categoryRef = useRef<HTMLInputElement>(null)
     const fileRef = useRef<HTMLInputElement>(null)
@@ -58,13 +60,16 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
         setEditingId(null)
     }
 
-    async function handleDelete(id: string) {
-        if (!confirm('Delete this model?')) return
+    async function confirmDelete() {
+        if (!deleteTargetId) return
+        const id = deleteTargetId
+        setDeleteTargetId(null)
         const res = await fetch(`/api/models/${id}`, { method: 'DELETE' })
         if (res.ok) setModels(prev => prev.filter(m => m.id !== id))
     }
 
     return (
+        <>
         <div className="flex flex-col gap-8">
 
             {/* Upload card */}
@@ -99,7 +104,12 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
                         disabled={uploading}
                         className="inline-flex items-center justify-center whitespace-nowrap rounded-md bg-primary text-primary-foreground text-sm font-medium h-9 px-4 shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                     >
-                        {uploading ? 'Uploading…' : 'Upload'}
+                        {uploading ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Uploading…
+                            </>
+                        ) : 'Upload'}
                     </button>
                 </form>
             </div>
@@ -200,7 +210,7 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
                                                             Edit
                                                         </button>
                                                         <button
-                                                            onClick={() => handleDelete(model.id)}
+                                                            onClick={() => setDeleteTargetId(model.id)}
                                                             className="inline-flex items-center justify-center rounded-md bg-destructive text-destructive-foreground text-xs font-medium h-7 px-3 shadow-sm transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                                         >
                                                             Delete
@@ -217,5 +227,42 @@ export default function AdminClient({ initialModels }: { initialModels: Model[] 
                 )}
             </div>
         </div>
+
+        {/* Delete confirmation dialog */}
+        {deleteTargetId && (() => {
+            const target = models.find(m => m.id === deleteTargetId)!
+            return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+                <div className="fixed inset-0 bg-black/50" onClick={() => setDeleteTargetId(null)} />
+                <div className="relative z-50 w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg">
+                    <h2 className="text-lg font-semibold text-foreground">Are you absolutely sure?</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                        This will permanently delete{' '}
+                        <span className="font-medium text-foreground">{target.name}</span>
+                        , uploaded on{' '}
+                        <span className="font-medium text-foreground">
+                            {new Date(target.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                        </span>
+                        . This action cannot be undone.
+                    </p>
+                    <div className="mt-6 flex justify-end gap-3">
+                        <button
+                            onClick={() => setDeleteTargetId(null)}
+                            className="inline-flex items-center justify-center rounded-md border border-border bg-background text-foreground text-sm font-medium h-9 px-4 shadow-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={confirmDelete}
+                            className="inline-flex items-center justify-center rounded-md bg-destructive text-destructive-foreground text-sm font-medium h-9 px-4 shadow transition-colors hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+            )
+        })()}
+        </>
     )
 }
