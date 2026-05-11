@@ -17,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return (
         <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
             <body className="min-h-screen bg-background font-sans antialiased">
-                <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <header style={{ viewTransitionName: 'site-header' }} className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                     <div className="mx-auto max-w-screen-xl px-4 flex h-14 items-center gap-6">
                         <Link href="/" className="flex items-center gap-2 font-semibold text-foreground">
                             <BoxIcon />

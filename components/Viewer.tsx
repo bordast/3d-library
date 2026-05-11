@@ -1,97 +1,18 @@
 'use client'
 
-// THREE.Clock is deprecated but @react-three/fiber v9 still uses it internally
-const _warn = console.warn
-console.warn = (...args: unknown[]) => {
-    if (typeof args[0] === 'string' && args[0].includes('THREE.Clock')) return
-    _warn(...args)
-}
-
-import { useState, useRef, useEffect, useMemo, useCallback, Suspense } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
-import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
-import { Box3, Vector3, EdgesGeometry } from 'three'
+import { useState, useRef, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
-import { Spinner } from '@/components/ui/spinner'
+import type { RenderMode } from './ModelCanvas'
 
-type RenderMode = 'solid' | 'wireframe' | 'uv'
-
-function Model({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
-    const { scene } = useGLTF(url)
-    const { camera } = useThree()
-
-    useEffect(() => {
-        const box = new Box3().setFromObject(scene)
-        const size = new Vector3()
-        const center = new Vector3()
-        box.getSize(size)
-        box.getCenter(center)
-
-        scene.position.sub(center)
-
-        const maxDim = Math.max(size.x, size.y, size.z)
-        camera.position.set(0, maxDim * 1, maxDim * 1)
-        camera.lookAt(0, 0, 0)
-        camera.near = maxDim * 0.01
-        camera.far = maxDim * 100
-        camera.updateProjectionMatrix()
-
-        onLoad(maxDim)
-    }, [scene, camera, onLoad])
-
-    const edges = useMemo(() => {
-        const result: { geometry: EdgesGeometry; uuid: string }[] = []
-        scene.traverse((child: any) => {
-            if (child.isMesh) {
-                result.push({ geometry: new EdgesGeometry(child.geometry, 15), uuid: child.uuid })
-            }
-        })
-        return result
-    }, [scene])
-
-    scene.traverse((child: any) => {
-        if (child.isMesh) {
-            child.material.transparent = mode === 'wireframe'
-            child.material.opacity = mode === 'wireframe' ? 0 : 1
-            child.material.wireframe = false
-        }
-    })
-
-    return (
-        <>
-            <primitive object={scene} />
-            {mode === 'wireframe' &&
-                edges.map(({ geometry, uuid }) => (
-                    <lineSegments key={uuid} geometry={geometry}>
-                        <lineBasicMaterial color="#00aaff" />
-                    </lineSegments>
-                ))}
-        </>
-    )
-}
-
-function CameraController({ controlsRef, minDistance, maxDistance }: {
-    controlsRef: React.RefObject<OrbitControlsType | null>
-    minDistance: number
-    maxDistance: number
-}) {
-    return <OrbitControls ref={controlsRef} makeDefault minDistance={minDistance} maxDistance={maxDistance} />
-}
+const ModelCanvas = dynamic(() => import('./ModelCanvas'), { ssr: false })
 
 export default function Viewer({ url }: { url: string }) {
     const [mode, setMode] = useState<RenderMode>('solid')
     const [maxDim, setMaxDim] = useState(1)
-    const [loaded, setLoaded] = useState(false)
     const controlsRef = useRef<OrbitControlsType | null>(null)
 
-    useEffect(() => {
-        setLoaded(false)
-    }, [url])
-
-    const handleLoad = useCallback((dim: number) => {
-        setMaxDim(dim)
-        setTimeout(() => setLoaded(true), 300)
-    }, [])
+    const handleLoad = useCallback((dim: number) => { setMaxDim(dim) }, [])
 
     const moveTo = (x: number, y: number, z: number) => {
         const controls = controlsRef.current
@@ -104,35 +25,31 @@ export default function Viewer({ url }: { url: string }) {
     const d = maxDim * 2
 
     const PRESETS = [
-        { label: 'Front', position: [0, 0, d] as [number, number, number] },
-        { label: 'Back', position: [0, 0, -d] as [number, number, number] },
-        { label: 'Left', position: [-d, 0, 0] as [number, number, number] },
-        { label: 'Right', position: [d, 0, 0] as [number, number, number] },
-        { label: 'Top', position: [0, d, 0] as [number, number, number] },
-        { label: 'Bottom', position: [0, -d, 0] as [number, number, number] },
+        { label: 'Front',  position: [0,  0,  d] as [number, number, number] },
+        { label: 'Back',   position: [0,  0, -d] as [number, number, number] },
+        { label: 'Left',   position: [-d, 0,  0] as [number, number, number] },
+        { label: 'Right',  position: [d,  0,  0] as [number, number, number] },
+        { label: 'Top',    position: [0,  d,  0] as [number, number, number] },
+        { label: 'Bottom', position: [0, -d,  0] as [number, number, number] },
     ]
 
     const RENDER_MODES: { value: RenderMode; label: string }[] = [
-        { value: 'solid', label: 'Solid' },
+        { value: 'solid',     label: 'Solid' },
         { value: 'wireframe', label: 'Wireframe' },
-        { value: 'uv', label: 'UV' },
+        { value: 'uv',        label: 'UV' },
     ]
 
     return (
         <div className="flex h-[520px]">
-            <div className="flex-1 min-w-0 relative">
-                {!loaded && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-                        <Spinner className="size-6 text-muted-foreground" />
-                    </div>
-                )}
-                <Canvas camera={{ position: [0, 0, 5] }}>
-                    <Environment preset="sunset" />
-                    <Suspense fallback={null}>
-                        <Model url={url} mode={mode} onLoad={handleLoad} />
-                    </Suspense>
-                    <CameraController controlsRef={controlsRef} minDistance={maxDim * 0.5} maxDistance={maxDim * 10} />
-                </Canvas>
+            <div className="flex-1 min-w-0">
+                <ModelCanvas
+                    url={url}
+                    mode={mode}
+                    onLoad={handleLoad}
+                    orbitRef={controlsRef}
+                    minDistance={maxDim * 0.5}
+                    maxDistance={maxDim * 10}
+                />
             </div>
 
             <div className="w-44 shrink-0 border-l border-border bg-card flex flex-col gap-5 p-4 overflow-y-auto">

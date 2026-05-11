@@ -1,6 +1,7 @@
 import { getModel } from '@/lib/db'
 import Viewer from '@/components/Viewer'
 import Link from 'next/link'
+import { ViewTransition } from 'react'
 
 type Props = {
     params: Promise<{ id: string }>
@@ -24,7 +25,7 @@ export default async function ModelPage({ params }: Props) {
     return (
         <div>
             <nav className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
-                <Link href="/models" className="hover:text-foreground transition-colors">Models</Link>
+                <Link href="/models" transitionTypes={['nav-back']} className="hover:text-foreground transition-colors">Models</Link>
                 <span>/</span>
                 <span className="text-foreground font-medium">{model.name}</span>
             </nav>
@@ -36,9 +37,11 @@ export default async function ModelPage({ params }: Props) {
                 </span>
             </div>
 
-            <div className="rounded-lg border border-border overflow-hidden bg-card shadow-sm">
-                <Viewer url={model.fileUrl} />
-            </div>
+            <ViewTransition name={`model-preview-${id}`} share="morph">
+                <div className="rounded-lg border border-border overflow-hidden bg-card shadow-sm">
+                    <Viewer url={model.fileUrl} />
+                </div>
+            </ViewTransition>
 
             <p className="mt-3 text-xs text-muted-foreground">
                 Uploaded {new Date(model.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}

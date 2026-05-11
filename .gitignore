@@ -15,6 +15,7 @@
 *.db
 *.db-shm
 *.db-wal
+/data/models.json
 
 # env files
 .env*
