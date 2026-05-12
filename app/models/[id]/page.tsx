@@ -39,7 +39,7 @@ export default async function ModelPage({ params }: Props) {
 
             <ViewTransition name={`model-preview-${id}`} share="morph">
                 <div className="rounded-lg border border-border overflow-hidden bg-card shadow-sm">
-                    <Viewer url={model.fileUrl} />
+                    <Viewer url={model.fileUrl} modelId={model.id} hasThumbnail={!!model.thumbnailUrl} />
                 </div>
             </ViewTransition>
 

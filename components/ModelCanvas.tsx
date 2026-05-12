@@ -7,10 +7,12 @@ console.warn = (...args: unknown[]) => {
     _warn(...args)
 }
 
-import { useState, useEffect, useMemo, useCallback, Suspense, Component, ReactNode } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode } from 'react'
+import { Canvas, useThree, useLoader } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
-import { Box3, Vector3, EdgesGeometry, Mesh, Material } from 'three'
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
+import { Box3, Vector3, EdgesGeometry, Mesh, Material, DoubleSide, Group, Loader, LoadingManager } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -35,8 +37,32 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
     }
 }
 
-function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
-    const { scene } = useGLTF(url)
+// Loads the companion .mtl file (same path, .obj → .mtl) then sets materials on
+// OBJLoader before parsing. Falls back to no-material load if MTL is absent.
+class OBJWithMTLLoader extends Loader<Group> {
+    load(
+        url: string,
+        onLoad: (data: Group) => void,
+        onProgress?: (event: ProgressEvent) => void,
+        onError?: (err: unknown) => void,
+    ) {
+        const mtlUrl = url.replace(/\.obj(\?.*)?$/i, '.mtl')
+        const loadObj = (materials?: MTLLoader.MaterialCreator) => {
+            const objLoader = new OBJLoader(this.manager)
+            if (materials) objLoader.setMaterials(materials)
+            objLoader.load(url, onLoad, onProgress, onError)
+        }
+        const mtlLoader = new MTLLoader(this.manager)
+        mtlLoader.load(
+            mtlUrl,
+            (materials) => { materials.preload(); loadObj(materials) },
+            undefined,
+            () => loadObj(),
+        )
+    }
+}
+
+function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode; onLoad: (maxDim: number) => void }) {
     const { camera } = useThree()
 
     useEffect(() => {
@@ -63,21 +89,25 @@ function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLo
         const result: { geometry: EdgesGeometry; uuid: string }[] = []
         scene.traverse((child) => {
             const mesh = child as Mesh
-            if (mesh.isMesh) result.push({ geometry: new EdgesGeometry(mesh.geometry, 15), uuid: mesh.uuid })
+            if (mesh.isMesh) result.push({ geometry: new EdgesGeometry(mesh.geometry), uuid: mesh.uuid })
         })
         return result
     }, [scene, mode])
 
-    scene.traverse((child) => {
-        const mesh = child as Mesh
-        if (!mesh.isMesh) return
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-        mats.forEach((mat: Material & { wireframe?: boolean }) => {
-            mat.transparent = mode === 'wireframe'
-            mat.opacity = mode === 'wireframe' ? 0 : 1
-            mat.wireframe = false
+    useLayoutEffect(() => {
+        scene.traverse((child) => {
+            const mesh = child as Mesh
+            if (!mesh.isMesh) return
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            mats.forEach((mat: Material & { wireframe?: boolean }) => {
+                mat.side = DoubleSide
+                mat.transparent = mode === 'wireframe'
+                mat.opacity = mode === 'wireframe' ? 0 : 1
+                mat.wireframe = false
+                mat.needsUpdate = true
+            })
         })
-    })
+    }, [scene, mode])
 
     return (
         <>
@@ -91,6 +121,50 @@ function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLo
     )
 }
 
+const GLTF_IMAGE_EXTS = new Set(['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ktx2', 'basis'])
+
+// Shared manager: only rewrites image URLs through the fallback API (webp-first).
+// Non-image assets like .bin buffers are fetched directly from /uploads/.
+const gltfTextureManager = new LoadingManager()
+gltfTextureManager.setURLModifier((url) => {
+    if (url.startsWith('/uploads/gltf/')) {
+        const ext = url.split('.').pop()?.toLowerCase() ?? ''
+        if (GLTF_IMAGE_EXTS.has(ext)) return '/api/texture' + url
+    }
+    return url
+})
+
+function GltfModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
+    const { scene } = useGLTF(url, undefined, undefined, (loader) => {
+        loader.manager = gltfTextureManager
+    })
+    return <SceneContent scene={scene as Group} mode={mode} onLoad={onLoad} />
+}
+
+function ObjModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
+    const obj = useLoader(OBJWithMTLLoader, url)
+    return <SceneContent scene={obj} mode={mode} onLoad={onLoad} />
+}
+
+function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
+    return url.toLowerCase().endsWith('.obj')
+        ? <ObjModel url={url} mode={mode} onLoad={onLoad} />
+        : <GltfModel url={url} mode={mode} onLoad={onLoad} />
+}
+
+function CaptureOnLoad({ onCapture }: { onCapture: (dataUrl: string) => void }) {
+    const { gl } = useThree()
+    const done = useRef(false)
+    useEffect(() => {
+        if (done.current) return
+        done.current = true
+        requestAnimationFrame(() => {
+            onCapture(gl.domElement.toDataURL('image/webp'))
+        })
+    }, [gl, onCapture])
+    return null
+}
+
 type Props = {
     url: string
     mode?: RenderMode
@@ -98,9 +172,10 @@ type Props = {
     orbitRef?: React.RefObject<OrbitControlsType | null>
     minDistance?: number
     maxDistance?: number
+    captureOnLoad?: (dataUrl: string) => void
 }
 
-export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10 }: Props) {
+export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10, captureOnLoad }: Props) {
     // When navigating from a card, the model is already in loadedUrls.
     // Defer Canvas mount until after the view transition finishes (~380ms) so
     // WebGL context creation doesn't compete with the CSS animation compositor.

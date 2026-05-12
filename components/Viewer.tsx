@@ -1,18 +1,31 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import type { RenderMode } from './ModelCanvas'
 
 const ModelCanvas = dynamic(() => import('./ModelCanvas'), { ssr: false })
 
-export default function Viewer({ url }: { url: string }) {
+export default function Viewer({ url, modelId, hasThumbnail }: { url: string; modelId?: string; hasThumbnail?: boolean }) {
     const [mode, setMode] = useState<RenderMode>('solid')
     const [maxDim, setMaxDim] = useState(1)
     const controlsRef = useRef<OrbitControlsType | null>(null)
+    const capturedRef = useRef(false)
 
     const handleLoad = useCallback((dim: number) => { setMaxDim(dim) }, [])
+
+    const handleCapture = useCallback(async (dataUrl: string) => {
+        if (!modelId || hasThumbnail || capturedRef.current) return
+        capturedRef.current = true
+        await fetch(`/api/models/${modelId}/thumbnail`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataUrl }),
+        })
+    }, [modelId, hasThumbnail])
+
+    useEffect(() => { capturedRef.current = false }, [url])
 
     const moveTo = (x: number, y: number, z: number) => {
         const controls = controlsRef.current
@@ -49,6 +62,7 @@ export default function Viewer({ url }: { url: string }) {
                     orbitRef={controlsRef}
                     minDistance={maxDim * 0.5}
                     maxDistance={maxDim * 10}
+                    captureOnLoad={modelId && !hasThumbnail ? handleCapture : undefined}
                 />
             </div>
 

@@ -11,6 +11,9 @@
 # uploads (user-generated content)
 /public/uploads/
 
+# generated thumbnails
+/public/thumbnails/
+
 # database
 *.db
 *.db-shm

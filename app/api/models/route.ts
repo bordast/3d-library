@@ -23,18 +23,29 @@ export async function POST(request: Request) {
         return Response.json({ error: 'Only .glb, .gltf, .obj files allowed' }, { status: 400 })
     }
 
-    const uploadDir = path.join(process.cwd(), 'public/uploads')
-    await mkdir(uploadDir, { recursive: true })
-
+    const uploadsRoot = path.join(process.cwd(), 'public/uploads')
     const filename = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`
     const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(path.join(uploadDir, filename), buffer)
+
+    let fileUrl: string
+    if (ext === '.obj' || ext === '.gltf') {
+        const stem = filename.slice(0, -(ext.length))
+        const dir = path.join(uploadsRoot, ext.slice(1), stem)
+        await mkdir(dir, { recursive: true })
+        await writeFile(path.join(dir, filename), buffer)
+        fileUrl = `/uploads/${ext.slice(1)}/${stem}/${filename}`
+    } else {
+        const dir = path.join(uploadsRoot, ext.slice(1))
+        await mkdir(dir, { recursive: true })
+        await writeFile(path.join(dir, filename), buffer)
+        fileUrl = `/uploads/${ext.slice(1)}/${filename}`
+    }
 
     const model = await createModel({
         name,
         category: category ?? undefined,
         format: ext,
-        fileUrl: `/uploads/${filename}`,
+        fileUrl,
     })
 
     return Response.json(model, { status: 201 })

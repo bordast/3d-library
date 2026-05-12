@@ -1,6 +1,43 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import dynamic from 'next/dynamic'
+
+const ModelCanvas = dynamic(() => import('@/components/ModelCanvas'), { ssr: false })
+
+import type { Model as ModelType } from '@/lib/db'
+
+function ThumbnailGenerator({ models, onDone }: {
+    models: ModelType[]
+    onDone: (id: string, url: string | null) => void
+}) {
+    const model = models[0]
+    if (!model) return null
+
+    const handleCapture = async (dataUrl: string) => {
+        try {
+            const res = await fetch(`/api/models/${model.id}/thumbnail`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataUrl }),
+            })
+            if (res.ok) {
+                const data = await res.json()
+                onDone(model.id, data.thumbnailUrl)
+                return
+            }
+        } catch {
+            // skip on error
+        }
+        onDone(model.id, null)
+    }
+
+    return (
+        <div aria-hidden style={{ position: 'fixed', left: '-9999px', top: 0, width: 256, height: 256, pointerEvents: 'none' }}>
+            <ModelCanvas key={model.id} url={model.fileUrl} captureOnLoad={handleCapture} />
+        </div>
+    )
+}
 import { Spinner } from '@/components/ui/spinner'
 import type { Model, Category } from '@/lib/db'
 import {
@@ -18,12 +55,40 @@ import { Button, buttonVariants } from '@/components/ui/button'
 export default function AdminClient({
     initialModels,
     initialCategories,
+    initialMissingMtl,
 }: {
     initialModels: Model[]
     initialCategories: Category[]
+    initialMissingMtl: string[]
 }) {
     const [models, setModels] = useState<Model[]>(initialModels)
     const [categories, setCategories] = useState<Category[]>(initialCategories)
+    const [missingMtl, setMissingMtl] = useState(() => new Set(initialMissingMtl))
+    // Thumbnail generation
+    const [genQueue, setGenQueue] = useState<Model[]>([])
+    const [genProgress, setGenProgress] = useState({ done: 0, total: 0 })
+
+    const missingThumbnails = models.filter(m => !m.thumbnailUrl).length
+
+    function startThumbnailGeneration() {
+        const pending = models.filter(m => !m.thumbnailUrl)
+        if (!pending.length) return
+        setGenProgress({ done: 0, total: pending.length })
+        setGenQueue(pending)
+    }
+
+    const handleGenDone = useCallback((id: string, url: string | null) => {
+        if (url) setModels(prev => prev.map(m => m.id === id ? { ...m, thumbnailUrl: url } : m))
+        setGenQueue(prev => prev.slice(1))
+        setGenProgress(prev => ({ ...prev, done: prev.done + 1 }))
+    }, [])
+
+    const [connectingMtlId, setConnectingMtlId] = useState<string | null>(null)
+    const [mtlUploading, setMtlUploading] = useState(false)
+    const mtlInputRef = useRef<HTMLInputElement>(null)
+
+    const [uploadingTexturesId, setUploadingTexturesId] = useState<string | null>(null)
+    const texturesInputRef = useRef<HTMLInputElement>(null)
 
     // Upload state
     const [uploading, setUploading] = useState(false)
@@ -108,6 +173,50 @@ export default function AdminClient({
         if (res.ok) setModels(prev => prev.filter(m => m.id !== id))
     }
 
+    function openMtlPicker(modelId: string) {
+        setConnectingMtlId(modelId)
+        mtlInputRef.current?.click()
+    }
+
+    async function handleMtlFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0]
+        if (!file || !connectingMtlId) return
+        setMtlUploading(true)
+        try {
+            const body = new FormData()
+            body.append('file', file)
+            const res = await fetch(`/api/models/${connectingMtlId}/mtl`, { method: 'POST', body })
+            if (res.ok) {
+                const id = connectingMtlId
+                setMissingMtl(prev => { const next = new Set(prev); next.delete(id); return next })
+            }
+        } finally {
+            setMtlUploading(false)
+            setConnectingMtlId(null)
+            if (mtlInputRef.current) mtlInputRef.current.value = ''
+        }
+    }
+
+    function openTexturesPicker(modelId: string) {
+        setUploadingTexturesId(modelId)
+        texturesInputRef.current?.click()
+    }
+
+    async function handleTexturesChosen(e: React.ChangeEvent<HTMLInputElement>) {
+        const files = e.target.files
+        if (!files?.length || !uploadingTexturesId) return
+        const id = uploadingTexturesId
+        setUploadingTexturesId(id + '-loading')
+        try {
+            const body = new FormData()
+            Array.from(files).forEach(f => body.append('files', f))
+            await fetch(`/api/models/${id}/textures`, { method: 'POST', body })
+        } finally {
+            setUploadingTexturesId(null)
+            if (texturesInputRef.current) texturesInputRef.current.value = ''
+        }
+    }
+
     async function handleCreateCategory(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
         const name = newCategoryName.trim()
@@ -175,6 +284,7 @@ export default function AdminClient({
 
     return (
         <>
+        <ThumbnailGenerator models={genQueue} onDone={handleGenDone} />
         <div className="flex flex-col gap-8">
 
             {/* Categories card */}
@@ -281,6 +391,18 @@ export default function AdminClient({
                         <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
                         <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
                     </div>
+                    {missingThumbnails > 0 && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={startThumbnailGeneration}
+                            disabled={genQueue.length > 0}
+                        >
+                            {genQueue.length > 0
+                                ? `Generating… ${genProgress.done}/${genProgress.total}`
+                                : `Generate thumbnails (${missingThumbnails})`}
+                        </Button>
+                    )}
                 </div>
 
                 {models.length === 0 ? (
@@ -337,9 +459,34 @@ export default function AdminClient({
                                             )}
                                         </td>
                                         <td className="px-4 py-3">
-                                            <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                {model.format}
-                                            </span>
+                                            <div className="flex flex-col gap-1">
+                                                <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                    {model.format}
+                                                </span>
+                                                {missingMtl.has(model.id) && (
+                                                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                                                        MTL missing·
+                                                        <button
+                                                            onClick={() => openMtlPicker(model.id)}
+                                                            disabled={mtlUploading && connectingMtlId === model.id}
+                                                            className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                                                        >
+                                                            {mtlUploading && connectingMtlId === model.id ? 'Uploading…' : 'Connect'}
+                                                        </button>
+                                                    </span>
+                                                )}
+                                                {model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && (
+                                                    <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                        <button
+                                                            onClick={() => openTexturesPicker(model.id)}
+                                                            disabled={uploadingTexturesId === model.id + '-loading'}
+                                                            className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                                                        >
+                                                            {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures'}
+                                                        </button>
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-4 py-3 text-muted-foreground">
                                             {new Date(model.createdAt).toLocaleDateString()}
@@ -367,6 +514,9 @@ export default function AdminClient({
                 )}
             </div>
         </div>
+
+        <input ref={mtlInputRef} type="file" accept=".mtl" className="hidden" onChange={handleMtlFileChosen} />
+        <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
 
         {/* Delete model dialog */}
         <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null) }}>

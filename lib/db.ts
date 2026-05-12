@@ -29,6 +29,7 @@ export type Model = {
   format: string
   fileUrl: string
   createdAt: string
+  thumbnailUrl?: string
 }
 
 type DbData = {
@@ -153,6 +154,15 @@ export async function updateModel(
     name: update.name,
     category: update.category?.trim() || data.models[idx].category,
   }
+  await writeData(data)
+  return data.models[idx]
+}
+
+export async function updateModelThumbnail(id: string, thumbnailUrl: string): Promise<Model | null> {
+  const data = await readData()
+  const idx = data.models.findIndex(m => m.id === id)
+  if (idx === -1) return null
+  data.models[idx] = { ...data.models[idx], thumbnailUrl }
   await writeData(data)
   return data.models[idx]
 }
