@@ -106,7 +106,7 @@ export default function Viewer({ url, modelId, hasThumbnail }: { url: string; mo
                         ))}
                     </div>
                     <button
-                        onClick={() => moveTo(0, maxDim * 0.3, maxDim * 0.5)}
+                        onClick={() => moveTo(0, maxDim * 0.5, maxDim * 1)}
                         className="mt-1 w-full rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
                     >
                         Reset

@@ -9,10 +9,10 @@ console.warn = (...args: unknown[]) => {
 
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode, ErrorInfo } from 'react'
 import { Canvas, useThree, useLoader, useFrame } from '@react-three/fiber'
-import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
+import { OrbitControls, useGLTF, Environment, useTexture } from '@react-three/drei'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
-import { Box3, Vector3, EdgesGeometry, Mesh, Material, Group, Loader, LoadingManager } from 'three'
+import { Box3, Vector3, EdgesGeometry, Mesh, Material, Group, Loader, LoadingManager, DoubleSide, MeshBasicMaterial } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -69,6 +69,16 @@ class OBJWithMTLLoader extends Loader<Group> {
 function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode; onLoad: (maxDim: number) => void }) {
     const { camera } = useThree()
 
+    // Load the UV checker texture. This will suspend the component until the texture is loaded.
+    // You should add a `uv_checker.png` file to your `/public/textures/` directory.
+    const uvCheckerTexture = useTexture('/textures/uv_checker.png')
+
+    // Memoize the material so it's not recreated on every render
+    const uvMaterial = useMemo(() => {
+        uvCheckerTexture.flipY = false // GLTF models often require this
+        return new MeshBasicMaterial({ map: uvCheckerTexture, side: DoubleSide })
+    }, [uvCheckerTexture])
+
     useEffect(() => {
         const box = new Box3().setFromObject(scene)
         const size = new Vector3()
@@ -78,7 +88,7 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
         scene.position.sub(center)
 
         const maxDim = Math.max(size.x, size.y, size.z)
-        camera.position.set(0, maxDim * 1, maxDim * 1)
+        camera.position.set(0, maxDim * 0.5, maxDim * 1)
         camera.lookAt(0, 0, 0)
         // Object.assign avoids direct property assignment on the hook return value,
         // which the React Compiler flags as a mutation. Three.js Camera has near/far.
@@ -102,16 +112,30 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
         scene.traverse((child) => {
             const mesh = child as Mesh
             if (!mesh.isMesh) return
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-            mats.forEach((mat: Material & { wireframe?: boolean }) => {
-                mat.transparent = mode === 'wireframe'
-                mat.opacity = mode === 'wireframe' ? 0 : 1
-                if (mode !== 'wireframe') mat.depthWrite = true
-                mat.wireframe = false
-                mat.needsUpdate = true
-            })
+
+            // Cache the original material so we can cleanly restore it later
+            if (!mesh.userData.originalMaterial) {
+                mesh.userData.originalMaterial = mesh.material
+            }
+
+            if (mode === 'uv' && uvMaterial) {
+                mesh.material = uvMaterial
+            } else {
+                // Restore the original material if returning to solid or wireframe mode
+                if (mesh.userData.originalMaterial) {
+                    mesh.material = mesh.userData.originalMaterial
+                }
+                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+                mats.forEach((mat: Material & { wireframe?: boolean }) => {
+                    mat.transparent = mode === 'wireframe'
+                    mat.opacity = mode === 'wireframe' ? 0 : 1
+                    if (mode !== 'wireframe') mat.depthWrite = true
+                    mat.wireframe = false
+                    mat.needsUpdate = true
+                })
+            }
         })
-    }, [scene, mode])
+    }, [scene, mode, uvMaterial])
 
     return (
         <>
@@ -257,11 +281,11 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
                 {canvasReady && (
                     <Canvas
                         key={retryKey}
-                        camera={{ position: [0, 0, 5] }}
+                        camera={{ position: [0, 0.5, 1] }}
                         gl={{ antialias: true, preserveDrawingBuffer: true }}
                         style={{ width: '100%', height: '100%' }}
                     >
-                        <Environment preset="sunset" />
+                        <Environment preset="sunset" background backgroundIntensity={0.1} backgroundBlurriness={0.8} />
                         <ErrorBoundary inline onError={handleLoaderError}>
                             <Suspense fallback={null}>
                                 <SceneModel url={url} mode={mode} onLoad={handleLoad} />
