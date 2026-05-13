@@ -4,7 +4,13 @@ type Context = { params: Promise<{ id: string }> }
 
 export async function PUT(request: Request, { params }: Context) {
     const { id } = await params
-    const { name } = await request.json()
+    let body: { name?: string }
+    try {
+        body = await request.json()
+    } catch {
+        return Response.json({ error: 'Invalid JSON' }, { status: 400 })
+    }
+    const { name } = body
     if (!name?.trim()) {
         return Response.json({ error: 'Name is required' }, { status: 400 })
     }

@@ -18,11 +18,16 @@ export default function Viewer({ url, modelId, hasThumbnail }: { url: string; mo
     const handleCapture = useCallback(async (dataUrl: string) => {
         if (!modelId || hasThumbnail || capturedRef.current) return
         capturedRef.current = true
-        await fetch(`/api/models/${modelId}/thumbnail`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dataUrl }),
-        })
+        try {
+            await fetch(`/api/models/${modelId}/thumbnail`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataUrl }),
+            })
+        } catch {
+            // Non-critical: thumbnail will be generated on next load or via admin
+            capturedRef.current = false
+        }
     }, [modelId, hasThumbnail])
 
     useEffect(() => { capturedRef.current = false }, [url])

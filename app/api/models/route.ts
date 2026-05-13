@@ -4,8 +4,12 @@ import path from 'path'
 
 export async function GET() {
     const models = await getModels()
-    return Response.json(models)
+    return Response.json(models, {
+        headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
+    })
 }
+
+const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200 MB
 
 export async function POST(request: Request) {
     const formData = await request.formData()
@@ -18,6 +22,10 @@ export async function POST(request: Request) {
         return Response.json({ error: 'Name and file are required' }, { status: 400 })
     }
 
+    if (file.size > MAX_FILE_SIZE) {
+        return Response.json({ error: 'File exceeds 200 MB limit' }, { status: 400 })
+    }
+
     const ext = path.extname(file.name).toLowerCase()
     if (!['.glb', '.gltf', '.obj'].includes(ext)) {
         return Response.json({ error: 'Only .glb, .gltf, .obj files allowed' }, { status: 400 })
@@ -28,17 +36,21 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer())
 
     let fileUrl: string
-    if (ext === '.obj' || ext === '.gltf') {
-        const stem = filename.slice(0, -(ext.length))
-        const dir = path.join(uploadsRoot, ext.slice(1), stem)
-        await mkdir(dir, { recursive: true })
-        await writeFile(path.join(dir, filename), buffer)
-        fileUrl = `/uploads/${ext.slice(1)}/${stem}/${filename}`
-    } else {
-        const dir = path.join(uploadsRoot, ext.slice(1))
-        await mkdir(dir, { recursive: true })
-        await writeFile(path.join(dir, filename), buffer)
-        fileUrl = `/uploads/${ext.slice(1)}/${filename}`
+    try {
+        if (ext === '.obj' || ext === '.gltf') {
+            const stem = filename.slice(0, -(ext.length))
+            const dir = path.join(uploadsRoot, ext.slice(1), stem)
+            await mkdir(dir, { recursive: true })
+            await writeFile(path.join(dir, filename), buffer)
+            fileUrl = `/uploads/${ext.slice(1)}/${stem}/${filename}`
+        } else {
+            const dir = path.join(uploadsRoot, ext.slice(1))
+            await mkdir(dir, { recursive: true })
+            await writeFile(path.join(dir, filename), buffer)
+            fileUrl = `/uploads/${ext.slice(1)}/${filename}`
+        }
+    } catch {
+        return Response.json({ error: 'Failed to save file' }, { status: 500 })
     }
 
     const model = await createModel({

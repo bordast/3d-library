@@ -7,7 +7,7 @@ console.warn = (...args: unknown[]) => {
     _warn(...args)
 }
 
-import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode, ErrorInfo } from 'react'
 import { Canvas, useThree, useLoader } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
@@ -23,16 +23,20 @@ export type RenderMode = 'solid' | 'wireframe' | 'uv'
 // page, the Viewer starts with loaded=true — no spinner, no transition conflict.
 const loadedUrls = new Set<string>()
 
-class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+type ErrorBoundaryProps = { children: ReactNode; onError?: () => void; inline?: boolean }
+class ErrorBoundary extends Component<ErrorBoundaryProps, { failed: boolean }> {
     state = { failed: false }
     static getDerivedStateFromError() { return { failed: true } }
+    componentDidCatch(_: Error, __: ErrorInfo) { this.props.onError?.() }
     render() {
-        if (this.state.failed)
+        if (this.state.failed) {
+            if (this.props.inline) return null
             return (
                 <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">
                     Failed to load model
                 </div>
             )
+        }
         return this.props.children
     }
 }
@@ -159,9 +163,19 @@ function CaptureOnLoad({ onCapture }: { onCapture: (dataUrl: string) => void }) 
         if (done.current) return
         done.current = true
         requestAnimationFrame(() => {
-            onCapture(gl.domElement.toDataURL('image/webp'))
+            try { onCapture(gl.domElement.toDataURL('image/webp')) } catch { /* tainted or unsupported */ }
         })
     }, [gl, onCapture])
+    return null
+}
+
+function ContextLossDetector({ onContextLost }: { onContextLost: () => void }) {
+    const { gl } = useThree()
+    useEffect(() => {
+        const canvas = gl.domElement
+        canvas.addEventListener('webglcontextlost', onContextLost)
+        return () => canvas.removeEventListener('webglcontextlost', onContextLost)
+    }, [gl, onContextLost])
     return null
 }
 
@@ -181,6 +195,9 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
     // WebGL context creation doesn't compete with the CSS animation compositor.
     const [canvasReady, setCanvasReady] = useState(() => !loadedUrls.has(url))
     const [loaded, setLoaded] = useState(() => loadedUrls.has(url))
+    const [timedOut, setTimedOut] = useState(false)
+    const [contextLost, setContextLost] = useState(false)
+    const [retryKey, setRetryKey] = useState(0)
 
     useEffect(() => {
         if (canvasReady) return
@@ -188,33 +205,72 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
         return () => clearTimeout(id)
     }, [canvasReady])
 
+    // If the model hasn't loaded within 10s, show a retry option
+    useEffect(() => {
+        if (!canvasReady || loaded) return
+        setTimedOut(false)
+        const id = setTimeout(() => setTimedOut(true), 10_000)
+        return () => clearTimeout(id)
+    }, [canvasReady, loaded, retryKey])
+
     const handleLoad = useCallback((dim: number) => {
         loadedUrls.add(url)
         onLoad?.(dim)
         setLoaded(true)
     }, [onLoad, url])
 
+    const handleContextLost = useCallback(() => setContextLost(true), [])
+
+    const handleLoaderError = useCallback(() => setTimedOut(true), [])
+
+    const handleRetry = useCallback(() => {
+        setTimedOut(false)
+        setContextLost(false)
+        setLoaded(false)
+        setRetryKey(k => k + 1)
+    }, [])
+
+    const showError = timedOut || contextLost
+
     return (
         <ErrorBoundary>
             <div className="relative w-full h-full">
-                {canvasReady && !loaded && (
+                {canvasReady && !loaded && !showError && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
                         <Spinner className="size-6 text-muted-foreground" />
                     </div>
                 )}
+                {showError && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60 text-sm text-muted-foreground">
+                        <span>{contextLost ? 'WebGL context lost — reload the page' : 'Failed to load model'}</span>
+                        {!contextLost && (
+                            <button
+                                onClick={handleRetry}
+                                className="rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                            >
+                                Retry
+                            </button>
+                        )}
+                    </div>
+                )}
                 {canvasReady && (
                     <Canvas
+                        key={retryKey}
                         camera={{ position: [0, 0, 5] }}
                         gl={{ antialias: true, preserveDrawingBuffer: true }}
                         style={{ width: '100%', height: '100%' }}
                     >
                         <Environment preset="sunset" />
-                        <Suspense fallback={null}>
-                            <SceneModel url={url} mode={mode} onLoad={handleLoad} />
-                        </Suspense>
+                        <ErrorBoundary inline onError={handleLoaderError}>
+                            <Suspense fallback={null}>
+                                <SceneModel url={url} mode={mode} onLoad={handleLoad} />
+                                {captureOnLoad && <CaptureOnLoad onCapture={captureOnLoad} />}
+                            </Suspense>
+                        </ErrorBoundary>
                         {orbitRef !== undefined && (
                             <OrbitControls ref={orbitRef} makeDefault minDistance={minDistance} maxDistance={maxDistance} />
                         )}
+                        <ContextLossDetector onContextLost={handleContextLost} />
                     </Canvas>
                 )}
             </div>

@@ -17,10 +17,18 @@ export async function POST(request: Request, { params }: Context) {
     if (path.extname(file.name).toLowerCase() !== '.mtl')
         return Response.json({ error: 'Only .mtl files allowed' }, { status: 400 })
 
+    const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB for MTL files
+    if (file.size > MAX_FILE_SIZE)
+        return Response.json({ error: 'File exceeds 50 MB limit' }, { status: 400 })
+
     const mtlFilename = path.basename(model.fileUrl).replace(/\.obj(\?.*)?$/i, '.mtl')
     const objDir = path.join(process.cwd(), 'public', path.dirname(model.fileUrl))
     const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(path.join(objDir, mtlFilename), buffer)
+    try {
+        await writeFile(path.join(objDir, mtlFilename), buffer)
+    } catch {
+        return Response.json({ error: 'Failed to save file' }, { status: 500 })
+    }
 
     return Response.json({ mtlUrl: `/uploads/${mtlFilename}` }, { status: 201 })
 }
