@@ -8,11 +8,11 @@ console.warn = (...args: unknown[]) => {
 }
 
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode, ErrorInfo } from 'react'
-import { Canvas, useThree, useLoader } from '@react-three/fiber'
+import { Canvas, useThree, useLoader, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
-import { Box3, Vector3, EdgesGeometry, Mesh, Material, DoubleSide, Group, Loader, LoadingManager } from 'three'
+import { Box3, Vector3, EdgesGeometry, Mesh, Material, Group, Loader, LoadingManager } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -104,9 +104,9 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
             if (!mesh.isMesh) return
             const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
             mats.forEach((mat: Material & { wireframe?: boolean }) => {
-                mat.side = DoubleSide
                 mat.transparent = mode === 'wireframe'
                 mat.opacity = mode === 'wireframe' ? 0 : 1
+                if (mode !== 'wireframe') mat.depthWrite = true
                 mat.wireframe = false
                 mat.needsUpdate = true
             })
@@ -158,14 +158,15 @@ function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLo
 
 function CaptureOnLoad({ onCapture }: { onCapture: (dataUrl: string) => void }) {
     const { gl } = useThree()
-    const done = useRef(false)
-    useEffect(() => {
-        if (done.current) return
-        done.current = true
-        requestAnimationFrame(() => {
-            try { onCapture(gl.domElement.toDataURL('image/webp')) } catch { /* tainted or unsupported */ }
-        })
-    }, [gl, onCapture])
+    const framesRef = useRef(0)
+    const capturedRef = useRef(false)
+    // Wait 3 R3F frames: camera is repositioned in a useEffect, so we need at least one subsequent render before reading the canvas.
+    useFrame(() => {
+        if (capturedRef.current) return
+        if (++framesRef.current < 3) return
+        capturedRef.current = true
+        try { onCapture(gl.domElement.toDataURL('image/webp')) } catch { /* tainted or unsupported */ }
+    })
     return null
 }
 
