@@ -39,29 +39,36 @@ type DbData = {
 
 const DATA_FILE = path.join(process.cwd(), 'data/models.json')
 
+let cache: DbData | null = null
+
 async function readData(): Promise<DbData> {
+  if (cache) return cache
   try {
     const content = await readFile(DATA_FILE, 'utf-8')
     const parsed = JSON.parse(content)
     if (Array.isArray(parsed)) {
-      return {
+      cache = {
         categories: [],
         models: parsed.map(m => ({ ...m, category: m.category ?? 'uncategorised' })),
       }
+    } else {
+      cache = {
+        categories: parsed.categories ?? [],
+        models: (parsed.models ?? []).map((m: Partial<Model>) => ({
+          ...m,
+          category: m.category ?? 'uncategorised',
+        })),
+      }
     }
-    return {
-      categories: parsed.categories ?? [],
-      models: (parsed.models ?? []).map((m: Partial<Model>) => ({
-        ...m,
-        category: m.category ?? 'uncategorised',
-      })),
-    }
+    return cache
   } catch {
-    return { categories: [], models: [] }
+    cache = { categories: [], models: [] }
+    return cache
   }
 }
 
 async function writeData(data: DbData): Promise<void> {
+  cache = data
   await writeFile(DATA_FILE, JSON.stringify(data, null, 2))
 }
 

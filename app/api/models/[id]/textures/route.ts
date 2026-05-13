@@ -3,6 +3,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 
 const ALLOWED_EXTS = new Set(['.webp', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ktx2', '.basis', '.bin', '.glb'])
+const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200 MB
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -23,14 +24,21 @@ export async function POST(request: Request, { params }: Context) {
     const modelDir = path.join(process.cwd(), 'public', path.dirname(model.fileUrl))
     await mkdir(modelDir, { recursive: true })
 
+    const oversized = files.find(f => f.size > MAX_FILE_SIZE)
+    if (oversized) return Response.json({ error: `File "${oversized.name}" exceeds 200 MB limit` }, { status: 400 })
+
     const saved: string[] = []
-    for (const file of files) {
-        const ext = path.extname(file.name).toLowerCase()
-        if (!ALLOWED_EXTS.has(ext)) continue
-        const safeName = path.basename(file.name).replace(/\s+/g, '-')
-        const buffer = Buffer.from(await file.arrayBuffer())
-        await writeFile(path.join(modelDir, safeName), buffer)
-        saved.push(safeName)
+    try {
+        for (const file of files) {
+            const ext = path.extname(file.name).toLowerCase()
+            if (!ALLOWED_EXTS.has(ext)) continue
+            const safeName = path.basename(file.name).replace(/\s+/g, '-')
+            const buffer = Buffer.from(await file.arrayBuffer())
+            await writeFile(path.join(modelDir, safeName), buffer)
+            saved.push(safeName)
+        }
+    } catch {
+        return Response.json({ error: 'Failed to save one or more files' }, { status: 500 })
     }
 
     return Response.json({ saved }, { status: 201 })

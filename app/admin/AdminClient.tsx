@@ -92,10 +92,15 @@ export default function AdminClient({
 
     // Upload state
     const [uploading, setUploading] = useState(false)
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null)
     const [uploadError, setUploadError] = useState<string | null>(null)
+    const [mtlStatus, setMtlStatus] = useState<'success' | 'error' | null>(null)
+    const [textureStatus, setTextureStatus] = useState<'success' | 'error' | null>(null)
     const nameRef = useRef<HTMLInputElement>(null)
     const categorySelectRef = useRef<HTMLSelectElement>(null)
     const fileRef = useRef<HTMLInputElement>(null)
+
+    const MAX_FILE_SIZE = 200 * 1024 * 1024
 
     // Model edit state
     const [editingId, setEditingId] = useState<string | null>(null)
@@ -110,38 +115,64 @@ export default function AdminClient({
     const [deleteCategoryTargetId, setDeleteCategoryTargetId] = useState<string | null>(null)
     const [categoryError, setCategoryError] = useState<string | null>(null)
 
-    async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
+    function handleUpload(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
         const form = e.currentTarget
         const name = nameRef.current?.value.trim()
         const file = fileRef.current?.files?.[0]
         if (!name || !file) return
 
-        setUploading(true)
-        setUploadError(null)
+        if (file.size > MAX_FILE_SIZE) {
+            setUploadError('File exceeds 200 MB limit.')
+            return
+        }
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+        if (!['.glb', '.gltf', '.obj'].includes(ext)) {
+            setUploadError('Only .glb, .gltf, and .obj files are supported.')
+            return
+        }
+
         const body = new FormData()
         body.append('name', name)
         const cat = categorySelectRef.current?.value
         if (cat) body.append('category', cat)
         body.append('file', file)
 
-        try {
-            const res = await fetch('/api/models', { method: 'POST', body })
-            if (res.ok) {
-                const model: Model = await res.json()
-                setModels(prev => [model, ...prev])
-                form.reset()
-            } else if (res.status === 413) {
-                setUploadError('File is too large. Try a smaller file or upload directly via the server.')
-            } else {
-                const data = await res.json().catch(() => ({}))
-                setUploadError(data.error ?? `Upload failed (${res.status})`)
-            }
-        } catch {
-            setUploadError('Network error — upload could not be completed.')
-        } finally {
-            setUploading(false)
+        setUploading(true)
+        setUploadProgress(0)
+        setUploadError(null)
+
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', '/api/models')
+        xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100))
         }
+        xhr.onload = () => {
+            setUploading(false)
+            setUploadProgress(null)
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const model: Model = JSON.parse(xhr.responseText)
+                    setModels(prev => [model, ...prev])
+                    form.reset()
+                } catch {
+                    setUploadError('Unexpected server response.')
+                }
+            } else {
+                try {
+                    const data = JSON.parse(xhr.responseText)
+                    setUploadError(data.error ?? `Upload failed (${xhr.status})`)
+                } catch {
+                    setUploadError(`Upload failed (${xhr.status})`)
+                }
+            }
+        }
+        xhr.onerror = () => {
+            setUploading(false)
+            setUploadProgress(null)
+            setUploadError('Network error — upload could not be completed.')
+        }
+        xhr.send(body)
     }
 
     function startEdit(model: Model) {
@@ -182,6 +213,7 @@ export default function AdminClient({
         const file = e.target.files?.[0]
         if (!file || !connectingMtlId) return
         setMtlUploading(true)
+        setMtlStatus(null)
         try {
             const body = new FormData()
             body.append('file', file)
@@ -189,11 +221,17 @@ export default function AdminClient({
             if (res.ok) {
                 const id = connectingMtlId
                 setMissingMtl(prev => { const next = new Set(prev); next.delete(id); return next })
+                setMtlStatus('success')
+            } else {
+                setMtlStatus('error')
             }
+        } catch {
+            setMtlStatus('error')
         } finally {
             setMtlUploading(false)
             setConnectingMtlId(null)
             if (mtlInputRef.current) mtlInputRef.current.value = ''
+            setTimeout(() => setMtlStatus(null), 3000)
         }
     }
 
@@ -207,13 +245,18 @@ export default function AdminClient({
         if (!files?.length || !uploadingTexturesId) return
         const id = uploadingTexturesId
         setUploadingTexturesId(id + '-loading')
+        setTextureStatus(null)
         try {
             const body = new FormData()
             Array.from(files).forEach(f => body.append('files', f))
-            await fetch(`/api/models/${id}/textures`, { method: 'POST', body })
+            const res = await fetch(`/api/models/${id}/textures`, { method: 'POST', body })
+            setTextureStatus(res.ok ? 'success' : 'error')
+        } catch {
+            setTextureStatus('error')
         } finally {
             setUploadingTexturesId(null)
             if (texturesInputRef.current) texturesInputRef.current.value = ''
+            setTimeout(() => setTextureStatus(null), 3000)
         }
     }
 
@@ -374,7 +417,9 @@ export default function AdminClient({
                         {uploading ? (
                             <>
                                 <Spinner className="mr-2" />
-                                Uploading…
+                                {uploadProgress !== null && uploadProgress < 100
+                                    ? `Uploading… ${uploadProgress}%`
+                                    : 'Processing…'}
                             </>
                         ) : 'Upload'}
                     </Button>
@@ -517,6 +562,17 @@ export default function AdminClient({
 
         <input ref={mtlInputRef} type="file" accept=".mtl" className="hidden" onChange={handleMtlFileChosen} />
         <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
+
+        {mtlStatus && (
+            <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${mtlStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
+                {mtlStatus === 'success' ? 'MTL file uploaded' : 'MTL upload failed'}
+            </div>
+        )}
+        {textureStatus && (
+            <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${textureStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
+                {textureStatus === 'success' ? 'Textures uploaded' : 'Texture upload failed'}
+            </div>
+        )}
 
         {/* Delete model dialog */}
         <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null) }}>
