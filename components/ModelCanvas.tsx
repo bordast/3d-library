@@ -1,9 +1,15 @@
 'use client'
 
-// THREE.Clock is deprecated but @react-three/fiber v9 still uses it internally
+// THREE.Clock is deprecated but @react-three/fiber v9 still uses it internally.
+// THREE.WebGLTextures warns when texture unit usage hits the GPU maximum (16),
+// even though rendering succeeds — the Environment HDR map consumes units that
+// push textured models to the limit.
 const _warn = console.warn
 console.warn = (...args: unknown[]) => {
-    if (typeof args[0] === 'string' && args[0].includes('THREE.Clock')) return
+    if (typeof args[0] === 'string' && (
+        args[0].includes('THREE.Clock') ||
+        args[0].includes('THREE.WebGLTextures')
+    )) return
     _warn(...args)
 }
 
