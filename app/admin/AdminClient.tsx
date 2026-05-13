@@ -114,6 +114,7 @@ export default function AdminClient({
     const [editCategoryName, setEditCategoryName] = useState('')
     const [deleteCategoryTargetId, setDeleteCategoryTargetId] = useState<string | null>(null)
     const [categoryError, setCategoryError] = useState<string | null>(null)
+    const [resetConfirm, setResetConfirm] = useState(false)
 
     function handleUpload(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
@@ -304,6 +305,17 @@ export default function AdminClient({
             }
         }
         setEditingCategoryId(null)
+    }
+
+    async function handleReset() {
+        const res = await fetch('/api/admin/reset', { method: 'POST' })
+        if (res.ok) {
+            setModels([])
+            setCategories([])
+            setMissingMtl(new Set())
+            setGenQueue([])
+            setGenProgress({ done: 0, total: 0 })
+        }
     }
 
     async function confirmDeleteCategory() {
@@ -558,6 +570,19 @@ export default function AdminClient({
                     </div>
                 )}
             </div>
+
+            {/* Danger zone */}
+            <div className="rounded-lg border border-destructive/30 bg-card text-card-foreground shadow-sm">
+                <div className="flex items-center justify-between p-6">
+                    <div className="flex flex-col gap-1">
+                        <h2 className="text-base font-semibold leading-none tracking-tight text-destructive">Danger zone</h2>
+                        <p className="text-sm text-muted-foreground">Permanently delete all models, uploads, and thumbnails.</p>
+                    </div>
+                    <Button variant="destructive" size="sm" onClick={() => setResetConfirm(true)}>
+                        Reset library
+                    </Button>
+                </div>
+            </div>
         </div>
 
         <input ref={mtlInputRef} type="file" accept=".mtl" className="hidden" onChange={handleMtlFileChosen} />
@@ -623,6 +648,22 @@ export default function AdminClient({
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction onClick={confirmDeleteCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Reset library dialog */}
+        <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Reset the entire library?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This permanently deletes all {models.length} {models.length === 1 ? 'model' : 'models'}, their uploaded files, all generated thumbnails, and all categories. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleReset} className={buttonVariants({ variant: 'destructive' })}>Reset everything</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

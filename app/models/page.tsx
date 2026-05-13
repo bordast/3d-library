@@ -2,6 +2,8 @@ import { getModels } from '@/lib/db'
 import ModelsClient from './ModelsClient'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 export default async function ModelsPage() {
     const models = await getModels()
 

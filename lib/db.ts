@@ -39,36 +39,29 @@ type DbData = {
 
 const DATA_FILE = path.join(process.cwd(), 'data/models.json')
 
-let cache: DbData | null = null
-
 async function readData(): Promise<DbData> {
-  if (cache) return cache
   try {
     const content = await readFile(DATA_FILE, 'utf-8')
     const parsed = JSON.parse(content)
     if (Array.isArray(parsed)) {
-      cache = {
+      return {
         categories: [],
         models: parsed.map(m => ({ ...m, category: m.category ?? 'uncategorised' })),
       }
-    } else {
-      cache = {
-        categories: parsed.categories ?? [],
-        models: (parsed.models ?? []).map((m: Partial<Model>) => ({
-          ...m,
-          category: m.category ?? 'uncategorised',
-        })),
-      }
     }
-    return cache
+    return {
+      categories: parsed.categories ?? [],
+      models: (parsed.models ?? []).map((m: Partial<Model>) => ({
+        ...m,
+        category: m.category ?? 'uncategorised',
+      })),
+    }
   } catch {
-    cache = { categories: [], models: [] }
-    return cache
+    return { categories: [], models: [] }
   }
 }
 
 async function writeData(data: DbData): Promise<void> {
-  cache = data
   await writeFile(DATA_FILE, JSON.stringify(data, null, 2))
 }
 
@@ -181,4 +174,8 @@ export async function deleteModel(id: string): Promise<Model | null> {
   const [removed] = data.models.splice(idx, 1)
   await writeData(data)
   return removed
+}
+
+export async function resetDb(): Promise<void> {
+  await writeData({ categories: [], models: [] })
 }

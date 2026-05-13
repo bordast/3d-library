@@ -3,6 +3,8 @@ import { access } from 'fs/promises'
 import path from 'path'
 import AdminClient from './AdminClient'
 
+export const dynamic = 'force-dynamic'
+
 export default async function AdminPage() {
     const [models, categories] = await Promise.all([getModels(), getCategories()])
 
