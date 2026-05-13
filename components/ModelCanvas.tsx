@@ -12,7 +12,7 @@ import { Canvas, useThree, useLoader, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment, useTexture } from '@react-three/drei'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
-import { Box3, Vector3, EdgesGeometry, Mesh, Material, Group, Loader, LoadingManager, DoubleSide, MeshBasicMaterial } from 'three'
+import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh, Material, Group, Loader, LoadingManager, DoubleSide, MeshBasicMaterial } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -98,30 +98,29 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
         onLoad(maxDim)
     }, [scene, camera, onLoad])
 
-    const edges = useMemo(() => {
-        if (mode !== 'wireframe') return []
-        const result: { geometry: EdgesGeometry; uuid: string }[] = []
-        scene.traverse((child) => {
-            const mesh = child as Mesh
-            if (mesh.isMesh) result.push({ geometry: new EdgesGeometry(mesh.geometry), uuid: mesh.uuid })
-        })
-        return result
-    }, [scene, mode])
-
     useLayoutEffect(() => {
+        // Remove stale wireframe overlays before applying the new mode
+        scene.traverse((child) => {
+            const toRemove = child.children.filter(c => c.userData.wireframeOverlay)
+            toRemove.forEach(c => {
+                child.remove(c)
+                const lines = c as LineSegments
+                lines.geometry.dispose();
+                (Array.isArray(lines.material) ? lines.material : [lines.material]).forEach(m => m.dispose())
+            })
+        })
+
         scene.traverse((child) => {
             const mesh = child as Mesh
             if (!mesh.isMesh) return
 
-            // Cache the original material so we can cleanly restore it later
             if (!mesh.userData.originalMaterial) {
                 mesh.userData.originalMaterial = mesh.material
             }
 
-            if (mode === 'uv' && uvMaterial) {
+            if (mode === 'uv') {
                 mesh.material = uvMaterial
             } else {
-                // Restore the original material if returning to solid or wireframe mode
                 if (mesh.userData.originalMaterial) {
                     mesh.material = mesh.userData.originalMaterial
                 }
@@ -133,20 +132,18 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
                     mat.wireframe = false
                     mat.needsUpdate = true
                 })
+                if (mode === 'wireframe') {
+                    // Add overlay as a child of the mesh so it inherits all transforms.
+                    // Rendering it at scene root would offset it by scene.position.
+                    const overlay = new LineSegments(new WireframeGeometry(mesh.geometry), new LineBasicMaterial())
+                    overlay.userData.wireframeOverlay = true
+                    mesh.add(overlay)
+                }
             }
         })
     }, [scene, mode, uvMaterial])
 
-    return (
-        <>
-            <primitive object={scene} />
-            {mode === 'wireframe' && edges.map(({ geometry, uuid }) => (
-                <lineSegments key={uuid} geometry={geometry}>
-                    <lineBasicMaterial color="#00aaff" />
-                </lineSegments>
-            ))}
-        </>
-    )
+    return <primitive object={scene} />
 }
 
 const GLTF_IMAGE_EXTS = new Set(['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ktx2', 'basis'])
@@ -215,15 +212,20 @@ type Props = {
 }
 
 export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10, captureOnLoad }: Props) {
-    // When navigating from a card, the model is already in loadedUrls.
-    // Defer Canvas mount until after the view transition finishes (~380ms) so
-    // WebGL context creation doesn't compete with the CSS animation compositor.
-    const [canvasReady, setCanvasReady] = useState(() => !loadedUrls.has(url))
+    const [canvasReady, setCanvasReady] = useState(false)
     const [loaded, setLoaded] = useState(() => loadedUrls.has(url))
     const [timedOut, setTimedOut] = useState(false)
     const [contextLost, setContextLost] = useState(false)
     const [retryKey, setRetryKey] = useState(0)
+    // Tracks whether we already did a silent auto-retry for context loss.
+    // First loss → silent remount (handles Strict Mode & transient GPU issues).
+    // Second loss → show the error UI.
+    const autoRetriedRef = useRef(false)
 
+    // Always delay canvas mount so WebGL context creation doesn't race with the
+    // view-transition animation — even on first load when url isn't in loadedUrls yet.
+    // Using [canvasReady] as deps: when handleRetry resets canvasReady to false,
+    // this effect re-fires and queues a fresh 420 ms delay for the remount.
     useEffect(() => {
         if (canvasReady) return
         const id = setTimeout(() => setCanvasReady(true), 420)
@@ -244,16 +246,29 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
         setLoaded(true)
     }, [onLoad, url])
 
-    const handleContextLost = useCallback(() => setContextLost(true), [])
-
-    const handleLoaderError = useCallback(() => setTimedOut(true), [])
-
     const handleRetry = useCallback(() => {
         setTimedOut(false)
         setContextLost(false)
         setLoaded(false)
+        setCanvasReady(false)
+        autoRetriedRef.current = false
         setRetryKey(k => k + 1)
     }, [])
+
+    const handleContextLost = useCallback(() => {
+        if (!autoRetriedRef.current) {
+            // First loss: silent remount — covers Strict Mode double-invoke and
+            // transient GPU resets without showing an error to the user.
+            autoRetriedRef.current = true
+            setLoaded(false)
+            setCanvasReady(false)
+            setRetryKey(k => k + 1)
+        } else {
+            setContextLost(true)
+        }
+    }, [])
+
+    const handleLoaderError = useCallback(() => setTimedOut(true), [])
 
     const showError = timedOut || contextLost
 
@@ -267,15 +282,13 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
                 )}
                 {showError && (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60 text-sm text-muted-foreground">
-                        <span>{contextLost ? 'WebGL context lost — reload the page' : 'Failed to load model'}</span>
-                        {!contextLost && (
-                            <button
-                                onClick={handleRetry}
-                                className="rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                            >
-                                Retry
-                            </button>
-                        )}
+                        <span>{contextLost ? 'WebGL context lost' : 'Failed to load model'}</span>
+                        <button
+                            onClick={handleRetry}
+                            className="rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        >
+                            Retry
+                        </button>
                     </div>
                 )}
                 {canvasReady && (
