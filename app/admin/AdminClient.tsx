@@ -156,6 +156,11 @@ export default function AdminClient({
                     const model: Model = JSON.parse(xhr.responseText)
                     setModels(prev => [model, ...prev])
                     form.reset()
+
+                    setGenQueue(prev => [...prev, model])
+                    setGenProgress(prev =>
+                        prev.done >= prev.total ? { done: 0, total: 1 } : { ...prev, total: prev.total + 1 }
+                    )
                 } catch {
                     setUploadError('Unexpected server response.')
                 }
@@ -339,334 +344,342 @@ export default function AdminClient({
 
     return (
         <>
-        <ThumbnailGenerator models={genQueue} onDone={handleGenDone} />
-        <div className="flex flex-col gap-8">
+            <ThumbnailGenerator models={genQueue} onDone={handleGenDone} />
+            <div className="flex flex-col gap-8">
 
-            {/* Categories card */}
-            <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                <div className="flex flex-col gap-1 p-6 border-b border-border">
-                    <h2 className="text-base font-semibold leading-none tracking-tight">Categories</h2>
-                    <p className="text-sm text-muted-foreground">Manage categories for organising your models.</p>
+                {/* Categories card */}
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                    <div className="flex flex-col gap-1 p-6 border-b border-border">
+                        <h2 className="text-base font-semibold leading-none tracking-tight">Categories</h2>
+                        <p className="text-sm text-muted-foreground">Manage categories for organising your models.</p>
+                    </div>
+                    <div className="p-6 flex flex-col gap-4">
+                        <form onSubmit={handleCreateCategory} className="flex gap-2">
+                            <input
+                                value={newCategoryName}
+                                onChange={e => setNewCategoryName(e.target.value)}
+                                type="text"
+                                placeholder="New category name"
+                                className={`${inputCls} max-w-xs`}
+                            />
+                            <Button type="submit" size="sm">Add</Button>
+                        </form>
+                        {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
+
+                        {categories.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No categories yet. Add one above.</p>
+                        ) : (
+                            <div className="flex flex-col gap-2">
+                                {categories.map(cat => (
+                                    <div key={cat.id} className="flex items-center gap-2">
+                                        {editingCategoryId === cat.id ? (
+                                            <>
+                                                <input
+                                                    value={editCategoryName}
+                                                    onChange={e => setEditCategoryName(e.target.value)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter') saveEditCategory(cat.id)
+                                                        if (e.key === 'Escape') setEditingCategoryId(null)
+                                                    }}
+                                                    autoFocus
+                                                    className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                />
+                                                <Button onClick={() => saveEditCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                <Button onClick={() => setEditingCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
+                                                    {cat.name}
+                                                </span>
+                                                <Button onClick={() => startEditCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
+                                                <Button onClick={() => setDeleteCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
-                <div className="p-6 flex flex-col gap-4">
-                    <form onSubmit={handleCreateCategory} className="flex gap-2">
-                        <input
-                            value={newCategoryName}
-                            onChange={e => setNewCategoryName(e.target.value)}
-                            type="text"
-                            placeholder="New category name"
-                            className={`${inputCls} max-w-xs`}
-                        />
-                        <Button type="submit" size="sm">Add</Button>
-                    </form>
-                    {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
 
-                    {categories.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">No categories yet. Add one above.</p>
-                    ) : (
-                        <div className="flex flex-col gap-2">
+                {/* Upload card */}
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                    <div className="flex flex-col gap-1 p-6 border-b border-border">
+                        <h2 className="text-base font-semibold leading-none tracking-tight">Upload Model</h2>
+                        <p className="text-sm text-muted-foreground">Add a new 3D model to your library. Supports .glb, .gltf, .obj</p>
+                    </div>
+                    <form onSubmit={handleUpload} className="p-6 flex flex-col sm:flex-row gap-3 flex-wrap">
+                        <input
+                            ref={nameRef}
+                            type="text"
+                            placeholder="Model name"
+                            required
+                            className={`${inputCls} sm:max-w-xs`}
+                        />
+                        <select ref={categorySelectRef} className={`${selectCls} sm:max-w-44`}>
+                            <option value="">No category</option>
                             {categories.map(cat => (
-                                <div key={cat.id} className="flex items-center gap-2">
-                                    {editingCategoryId === cat.id ? (
-                                        <>
-                                            <input
-                                                value={editCategoryName}
-                                                onChange={e => setEditCategoryName(e.target.value)}
-                                                onKeyDown={e => {
-                                                    if (e.key === 'Enter') saveEditCategory(cat.id)
-                                                    if (e.key === 'Escape') setEditingCategoryId(null)
-                                                }}
-                                                autoFocus
-                                                className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                            />
-                                            <Button onClick={() => saveEditCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
-                                            <Button onClick={() => setEditingCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
-                                                {cat.name}
-                                            </span>
-                                            <Button onClick={() => startEditCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
-                                            <Button onClick={() => setDeleteCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
-                                        </>
-                                    )}
-                                </div>
+                                <option key={cat.id} value={cat.name}>{cat.name}</option>
                             ))}
+                        </select>
+                        <input
+                            ref={fileRef}
+                            type="file"
+                            accept=".glb,.gltf,.obj"
+                            required
+                            className="flex h-9 w-full sm:flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                        />
+                        <Button type="submit" disabled={uploading} size="sm">
+                            {uploading ? (
+                                <>
+                                    <Spinner className="mr-2" />
+                                    {uploadProgress !== null && uploadProgress < 100
+                                        ? `Uploading… ${uploadProgress}%`
+                                        : 'Processing…'}
+                                </>
+                            ) : 'Upload'}
+                        </Button>
+                    </form>
+                    {uploadError && (
+                        <div className="px-6 pb-4 text-sm text-destructive">{uploadError}</div>
+                    )}
+                </div>
+
+                {/* Models table card */}
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                    <div className="flex items-center justify-between p-6 border-b border-border">
+                        <div className="flex flex-col gap-1">
+                            <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
+                            <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
+                        </div>
+                        {missingThumbnails > 0 && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={startThumbnailGeneration}
+                                disabled={genQueue.length > 0}
+                            >
+                                {genQueue.length > 0
+                                    ? `Generating… ${genProgress.done}/${genProgress.total}`
+                                    : `Generate thumbnails (${missingThumbnails})`}
+                            </Button>
+                        )}
+                    </div>
+
+                    {models.length === 0 ? (
+                        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+                            No models yet. Upload one above.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-border bg-muted/50">
+                                        <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
+                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
+                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Format</th>
+                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
+                                        <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {models.map(model => (
+                                        <tr key={model.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                                            <td className="px-6 py-3">
+                                                {editingId === model.id ? (
+                                                    <input
+                                                        value={editName}
+                                                        onChange={e => setEditName(e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') saveEdit(model.id)
+                                                            if (e.key === 'Escape') setEditingId(null)
+                                                        }}
+                                                        autoFocus
+                                                        className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                    />
+                                                ) : (
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="font-medium">{model.name}</span>
+                                                        {genQueue.some(m => m.id === model.id) && (
+                                                            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+                                                                <Spinner className="size-3" />
+                                                                Generating thumbnail…
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {editingId === model.id ? (
+                                                    <select
+                                                        value={editCategory}
+                                                        onChange={e => setEditCategory(e.target.value)}
+                                                        className="flex h-7 max-w-36 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                                    >
+                                                        <option value="uncategorised">uncategorised</option>
+                                                        {categories.map(cat => (
+                                                            <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                        {model.category}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                        {model.format}
+                                                    </span>
+                                                    {missingMtl.has(model.id) && (
+                                                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                                                            MTL missing·
+                                                            <button
+                                                                onClick={() => openMtlPicker(model.id)}
+                                                                disabled={mtlUploading && connectingMtlId === model.id}
+                                                                className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                                                            >
+                                                                {mtlUploading && connectingMtlId === model.id ? 'Uploading…' : 'Connect'}
+                                                            </button>
+                                                        </span>
+                                                    )}
+                                                    {model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && (
+                                                        <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                            <button
+                                                                onClick={() => openTexturesPicker(model.id)}
+                                                                disabled={uploadingTexturesId === model.id + '-loading'}
+                                                                className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                                                            >
+                                                                {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures'}
+                                                            </button>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-muted-foreground">
+                                                {new Date(model.createdAt).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-6 py-3">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {editingId === model.id ? (
+                                                        <>
+                                                            <Button onClick={() => saveEdit(model.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                            <Button onClick={() => setEditingId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Button onClick={() => startEdit(model)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
+                                                            <Button onClick={() => setDeleteTargetId(model.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     )}
                 </div>
-            </div>
 
-            {/* Upload card */}
-            <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                <div className="flex flex-col gap-1 p-6 border-b border-border">
-                    <h2 className="text-base font-semibold leading-none tracking-tight">Upload Model</h2>
-                    <p className="text-sm text-muted-foreground">Add a new 3D model to your library. Supports .glb, .gltf, .obj</p>
-                </div>
-                <form onSubmit={handleUpload} className="p-6 flex flex-col sm:flex-row gap-3 flex-wrap">
-                    <input
-                        ref={nameRef}
-                        type="text"
-                        placeholder="Model name"
-                        required
-                        className={`${inputCls} sm:max-w-xs`}
-                    />
-                    <select ref={categorySelectRef} className={`${selectCls} sm:max-w-44`}>
-                        <option value="">No category</option>
-                        {categories.map(cat => (
-                            <option key={cat.id} value={cat.name}>{cat.name}</option>
-                        ))}
-                    </select>
-                    <input
-                        ref={fileRef}
-                        type="file"
-                        accept=".glb,.gltf,.obj"
-                        required
-                        className="flex h-9 w-full sm:flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-                    />
-                    <Button type="submit" disabled={uploading} size="sm">
-                        {uploading ? (
-                            <>
-                                <Spinner className="mr-2" />
-                                {uploadProgress !== null && uploadProgress < 100
-                                    ? `Uploading… ${uploadProgress}%`
-                                    : 'Processing…'}
-                            </>
-                        ) : 'Upload'}
-                    </Button>
-                </form>
-                {uploadError && (
-                    <div className="px-6 pb-4 text-sm text-destructive">{uploadError}</div>
-                )}
-            </div>
-
-            {/* Models table card */}
-            <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                <div className="flex items-center justify-between p-6 border-b border-border">
-                    <div className="flex flex-col gap-1">
-                        <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
-                        <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
-                    </div>
-                    {missingThumbnails > 0 && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={startThumbnailGeneration}
-                            disabled={genQueue.length > 0}
-                        >
-                            {genQueue.length > 0
-                                ? `Generating… ${genProgress.done}/${genProgress.total}`
-                                : `Generate thumbnails (${missingThumbnails})`}
+                {/* Danger zone */}
+                <div className="rounded-lg border border-destructive/30 bg-card text-card-foreground shadow-sm">
+                    <div className="flex items-center justify-between p-6">
+                        <div className="flex flex-col gap-1">
+                            <h2 className="text-base font-semibold leading-none tracking-tight text-destructive">Danger zone</h2>
+                            <p className="text-sm text-muted-foreground">Permanently delete all models, uploads, and thumbnails.</p>
+                        </div>
+                        <Button variant="destructive" size="sm" onClick={() => setResetConfirm(true)}>
+                            Reset library
                         </Button>
-                    )}
-                </div>
-
-                {models.length === 0 ? (
-                    <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                        No models yet. Upload one above.
                     </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-border bg-muted/50">
-                                    <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
-                                    <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
-                                    <th className="h-10 px-4 text-left font-medium text-muted-foreground">Format</th>
-                                    <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
-                                    <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {models.map(model => (
-                                    <tr key={model.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                                        <td className="px-6 py-3">
-                                            {editingId === model.id ? (
-                                                <input
-                                                    value={editName}
-                                                    onChange={e => setEditName(e.target.value)}
-                                                    onKeyDown={e => {
-                                                        if (e.key === 'Enter') saveEdit(model.id)
-                                                        if (e.key === 'Escape') setEditingId(null)
-                                                    }}
-                                                    autoFocus
-                                                    className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                                />
-                                            ) : (
-                                                <span className="font-medium">{model.name}</span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            {editingId === model.id ? (
-                                                <select
-                                                    value={editCategory}
-                                                    onChange={e => setEditCategory(e.target.value)}
-                                                    className="flex h-7 max-w-36 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-                                                >
-                                                    <option value="uncategorised">uncategorised</option>
-                                                    {categories.map(cat => (
-                                                        <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                    {model.category}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex flex-col gap-1">
-                                                <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                    {model.format}
-                                                </span>
-                                                {missingMtl.has(model.id) && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                                                        MTL missing·
-                                                        <button
-                                                            onClick={() => openMtlPicker(model.id)}
-                                                            disabled={mtlUploading && connectingMtlId === model.id}
-                                                            className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
-                                                        >
-                                                            {mtlUploading && connectingMtlId === model.id ? 'Uploading…' : 'Connect'}
-                                                        </button>
-                                                    </span>
-                                                )}
-                                                {model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                        <button
-                                                            onClick={() => openTexturesPicker(model.id)}
-                                                            disabled={uploadingTexturesId === model.id + '-loading'}
-                                                            className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
-                                                        >
-                                                            {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures'}
-                                                        </button>
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3 text-muted-foreground">
-                                            {new Date(model.createdAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-6 py-3">
-                                            <div className="flex items-center justify-end gap-2">
-                                                {editingId === model.id ? (
-                                                    <>
-                                                        <Button onClick={() => saveEdit(model.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
-                                                        <Button onClick={() => setEditingId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Button onClick={() => startEdit(model)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
-                                                        <Button onClick={() => setDeleteTargetId(model.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-
-            {/* Danger zone */}
-            <div className="rounded-lg border border-destructive/30 bg-card text-card-foreground shadow-sm">
-                <div className="flex items-center justify-between p-6">
-                    <div className="flex flex-col gap-1">
-                        <h2 className="text-base font-semibold leading-none tracking-tight text-destructive">Danger zone</h2>
-                        <p className="text-sm text-muted-foreground">Permanently delete all models, uploads, and thumbnails.</p>
-                    </div>
-                    <Button variant="destructive" size="sm" onClick={() => setResetConfirm(true)}>
-                        Reset library
-                    </Button>
                 </div>
             </div>
-        </div>
 
-        <input ref={mtlInputRef} type="file" accept=".mtl" className="hidden" onChange={handleMtlFileChosen} />
-        <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
+            <input ref={mtlInputRef} type="file" accept=".mtl" className="hidden" onChange={handleMtlFileChosen} />
+            <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
 
-        {mtlStatus && (
-            <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${mtlStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
-                {mtlStatus === 'success' ? 'MTL file uploaded' : 'MTL upload failed'}
-            </div>
-        )}
-        {textureStatus && (
-            <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${textureStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
-                {textureStatus === 'success' ? 'Textures uploaded' : 'Texture upload failed'}
-            </div>
-        )}
+            {mtlStatus && (
+                <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${mtlStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
+                    {mtlStatus === 'success' ? 'MTL file uploaded' : 'MTL upload failed'}
+                </div>
+            )}
+            {textureStatus && (
+                <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${textureStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
+                    {textureStatus === 'success' ? 'Textures uploaded' : 'Texture upload failed'}
+                </div>
+            )}
 
-        {/* Delete model dialog */}
-        <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null) }}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        {deleteTargetId && (() => {
-                            const target = models.find(m => m.id === deleteTargetId)!
-                            return <>
-                                This permanently deletes{' '}
-                                <span className="font-medium text-foreground">{target.name}</span>
-                                , uploaded on{' '}
-                                <span className="font-medium text-foreground">
-                                    {new Date(target.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
-                                </span>
-                                . This action cannot be undone.
-                            </>
-                        })()}
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDelete} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+            {/* Delete model dialog */}
+            <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deleteTargetId && (() => {
+                                const target = models.find(m => m.id === deleteTargetId)!
+                                return <>
+                                    This permanently deletes{' '}
+                                    <span className="font-medium text-foreground">{target.name}</span>
+                                    , uploaded on{' '}
+                                    <span className="font-medium text-foreground">
+                                        {new Date(target.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                                    </span>
+                                    . This action cannot be undone.
+                                </>
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
-        {/* Delete category dialog */}
-        <AlertDialog open={!!deleteCategoryTargetId} onOpenChange={(open) => { if (!open) setDeleteCategoryTargetId(null) }}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Delete category?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        {deleteCategoryTargetId && (() => {
-                            const target = categories.find(c => c.id === deleteCategoryTargetId)!
-                            const affected = models.filter(m => m.category === target.name).length
-                            return <>
-                                This will delete{' '}
-                                <span className="font-medium text-foreground">{target.name}</span>.
-                                {affected > 0 && (
-                                    <> {affected} {affected === 1 ? 'model' : 'models'} will be set to uncategorised.</>
-                                )}
-                            </>
-                        })()}
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDeleteCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+            {/* Delete category dialog */}
+            <AlertDialog open={!!deleteCategoryTargetId} onOpenChange={(open) => { if (!open) setDeleteCategoryTargetId(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete category?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deleteCategoryTargetId && (() => {
+                                const target = categories.find(c => c.id === deleteCategoryTargetId)!
+                                const affected = models.filter(m => m.category === target.name).length
+                                return <>
+                                    This will delete{' '}
+                                    <span className="font-medium text-foreground">{target.name}</span>.
+                                    {affected > 0 && (
+                                        <> {affected} {affected === 1 ? 'model' : 'models'} will be set to uncategorised.</>
+                                    )}
+                                </>
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeleteCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
-        {/* Reset library dialog */}
-        <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Reset the entire library?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This permanently deletes all {models.length} {models.length === 1 ? 'model' : 'models'}, their uploaded files, all generated thumbnails, and all categories. This action cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleReset} className={buttonVariants({ variant: 'destructive' })}>Reset everything</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+            {/* Reset library dialog */}
+            <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Reset the entire library?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This permanently deletes all {models.length} {models.length === 1 ? 'model' : 'models'}, their uploaded files, all generated thumbnails, and all categories. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleReset} className={buttonVariants({ variant: 'destructive' })}>Reset everything</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     )
 }

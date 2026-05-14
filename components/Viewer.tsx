@@ -40,7 +40,7 @@ export default function Viewer({ url, modelId, hasThumbnail }: { url: string; mo
         controls.update()
     }
 
-    const d = maxDim * 2
+    const d = maxDim
 
     const PRESETS = [
         { label: 'Front',  position: [0,  0,  d] as [number, number, number] },
@@ -55,6 +55,10 @@ export default function Viewer({ url, modelId, hasThumbnail }: { url: string; mo
         { value: 'solid',     label: 'Solid' },
         { value: 'wireframe', label: 'Wireframe' },
         { value: 'uv',        label: 'UV' },
+        { value: 'albedo',    label: 'Albedo (Base)' },
+        { value: 'normal',    label: 'Normal Map' },
+        { value: 'roughness', label: 'Roughness' },
+        { value: 'emission',  label: 'Emission' },
     ]
 
     return (

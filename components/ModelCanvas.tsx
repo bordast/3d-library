@@ -16,7 +16,7 @@ import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
-export type RenderMode = 'solid' | 'wireframe' | 'uv'
+export type RenderMode = 'solid' | 'wireframe' | 'uv' | 'albedo' | 'normal' | 'roughness' | 'metalness' | 'emission'
 
 // Tracks URLs whose models have fully loaded at least once in this session.
 // When navigating from a card (which already loaded the model) to the detail
@@ -116,10 +116,24 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
 
             if (!mesh.userData.originalMaterial) {
                 mesh.userData.originalMaterial = mesh.material
+
+                // Extract the first material if it's an array
+                const orig = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material as any
+
+                // Pre-generate unlit debug materials for each texture map to avoid memory leaks on swap
+                mesh.userData.debugMaterials = {
+                    albedo: new MeshBasicMaterial({ map: orig.map || null, color: orig.color || 0xffffff }),
+                    normal: new MeshBasicMaterial({ map: orig.normalMap || null, color: orig.normalMap ? 0xffffff : 0x8080ff }),
+                    roughness: new MeshBasicMaterial({ map: orig.roughnessMap || null, color: orig.roughnessMap ? 0xffffff : 0x808080 }),
+                    metalness: new MeshBasicMaterial({ map: orig.metalnessMap || null, color: orig.metalnessMap ? 0xffffff : 0x000000 }),
+                    emission: new MeshBasicMaterial({ map: orig.emissiveMap || null, color: orig.emissive || 0x000000 }),
+                }
             }
 
             if (mode === 'uv') {
                 mesh.material = uvMaterial
+            } else if (['albedo', 'normal', 'roughness', 'metalness', 'emission'].includes(mode)) {
+                mesh.material = mesh.userData.debugMaterials[mode]
             } else {
                 if (mesh.userData.originalMaterial) {
                     mesh.material = mesh.userData.originalMaterial
@@ -178,7 +192,7 @@ function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLo
 }
 
 function CaptureOnLoad({ onCapture }: { onCapture: (dataUrl: string) => void }) {
-    const { gl } = useThree()
+    const { gl, scene, camera } = useThree()
     const framesRef = useRef(0)
     const capturedRef = useRef(false)
     // Wait 3 R3F frames: camera is repositioned in a useEffect, so we need at least one subsequent render before reading the canvas.
@@ -186,7 +200,16 @@ function CaptureOnLoad({ onCapture }: { onCapture: (dataUrl: string) => void }) 
         if (capturedRef.current) return
         if (++framesRef.current < 3) return
         capturedRef.current = true
-        try { onCapture(gl.domElement.toDataURL('image/webp')) } catch { /* tainted or unsupported */ }
+
+        // Temporarily strip the HDRI background for a transparent capture
+        const oldBg = scene.background
+        scene.background = null
+        gl.render(scene, camera) // Synchronously render the transparent frame
+
+        try { onCapture(gl.domElement.toDataURL('image/webp', 0.95)) } catch { /* tainted or unsupported */ }
+
+        // Restore the HDRI background so the user never sees a flicker
+        scene.background = oldBg
     })
     return null
 }
@@ -295,7 +318,7 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
                     <Canvas
                         key={retryKey}
                         camera={{ position: [0, 0.5, 1] }}
-                        gl={{ antialias: true, preserveDrawingBuffer: true }}
+                        gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
                         style={{ width: '100%', height: '100%' }}
                     >
                         <Environment preset="sunset" background backgroundIntensity={0.1} backgroundBlurriness={0.8} />
