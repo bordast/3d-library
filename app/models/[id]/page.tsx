@@ -23,29 +23,14 @@ export default async function ModelPage({ params }: Props) {
     }
 
     return (
-        <div>
-            <nav className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
-                <Link href="/models" transitionTypes={['nav-back']} className="hover:text-foreground transition-colors">Models</Link>
-                <span>/</span>
-                <span className="text-foreground font-medium">{model.name}</span>
-            </nav>
-
-            <div className="flex items-center gap-3 mb-6">
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">{model.name}</h1>
-                <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {model.format}
-                </span>
-            </div>
-
-            <ViewTransition name={`model-preview-${id}`} share="morph">
-                <div className="rounded-lg border border-border overflow-hidden bg-card shadow-sm">
-                    <Viewer url={model.fileUrl} modelId={model.id} hasThumbnail={!!model.thumbnailUrl} />
-                </div>
-            </ViewTransition>
-
-            <p className="mt-3 text-xs text-muted-foreground">
-                Uploaded {new Date(model.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
-        </div>
+        <ViewTransition name={`model-preview-${id}`} share="morph">
+            <Viewer
+                url={model.fileUrl}
+                modelId={model.id}
+                hasThumbnail={!!model.thumbnailUrl}
+                name={model.name}
+                format={model.format}
+            />
+        </ViewTransition>
     )
 }
