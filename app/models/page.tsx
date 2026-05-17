@@ -9,7 +9,7 @@ export default async function ModelsPage() {
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-foreground">Models</h1>
                     <p className="text-sm text-muted-foreground mt-1">
@@ -25,7 +25,7 @@ export default async function ModelsPage() {
             </div>
 
             {models.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-border rounded-lg">
+                <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center border border-dashed border-border rounded-lg">
                     <p className="text-muted-foreground text-sm">No models yet.</p>
                     <Link href="/admin" className="mt-3 text-sm font-medium text-foreground underline underline-offset-4">
                         Upload your first model
