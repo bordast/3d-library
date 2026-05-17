@@ -193,7 +193,7 @@ export default function ModelsClient({ models }: { models: Model[] }) {
 
             {/* Grid / empty state */}
             {filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-border rounded-lg">
+                <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center border border-dashed border-border rounded-lg">
                     <p className="text-muted-foreground text-sm">No models match your filters.</p>
                     <button
                         onClick={() => { setNameQuery(''); setSelectedCategory('') }}
