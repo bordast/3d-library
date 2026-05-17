@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import dynamic from 'next/dynamic'
+import { Vector3, Spherical, MathUtils } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import type { RenderMode } from './ModelCanvas'
 
@@ -24,16 +25,15 @@ export default function Viewer({
     const [maxDim, setMaxDim] = useState(1)
     const controlsRef = useRef<OrbitControlsType | null>(null)
     const capturedRef = useRef(false)
+    const animationRef = useRef<number>(null)
 
     const handleLoad = useCallback((dim: number) => {
         setMaxDim(dim)
-        // Offset the controls target slightly to the left to balance the right sidebar
         setTimeout(() => {
             const controls = controlsRef.current
             if (controls) {
-                const offsetX = dim * 0.2
-                controls.target.set(offsetX, 0, 0)
-                controls.object.position.set(offsetX, dim * 0.5, dim * 1)
+                controls.target.set(0, 0, 0)
+                controls.object.position.set(0, dim * 0.5, dim * 1)
                 controls.update()
             }
         }, 50)
@@ -54,16 +54,68 @@ export default function Viewer({
         }
     }, [modelId, hasThumbnail])
 
-    useEffect(() => { capturedRef.current = false }, [url])
+    useEffect(() => {
+        capturedRef.current = false
+        return () => {
+            if (animationRef.current !== null) {
+                cancelAnimationFrame(animationRef.current)
+            }
+        }
+    }, [url])
 
-    const moveTo = (x: number, y: number, z: number) => {
+    const moveTo = useCallback((x: number, y: number, z: number) => {
         const controls = controlsRef.current
         if (!controls) return
-        const offsetX = maxDim * 0.2
-        controls.object.position.set(x + offsetX, y, z)
-        controls.target.set(offsetX, 0, 0)
-        controls.update()
-    }
+
+        if (animationRef.current !== null) {
+            cancelAnimationFrame(animationRef.current)
+        }
+
+        const startPos = controls.object.position.clone()
+        const endPos = new Vector3(x, y, z)
+        const startTarget = controls.target.clone()
+        const endTarget = new Vector3(0, 0, 0)
+        
+        // Convert positions to spherical coordinates relative to their targets
+        const startSpherical = new Spherical().setFromVector3(startPos.clone().sub(startTarget))
+        const endSpherical = new Spherical().setFromVector3(endPos.clone().sub(endTarget))
+        
+        // Shortest path for theta
+        const thetaDiff = endSpherical.theta - startSpherical.theta
+        if (thetaDiff > Math.PI) endSpherical.theta -= 2 * Math.PI
+        if (thetaDiff < -Math.PI) endSpherical.theta += 2 * Math.PI
+
+        const duration = 500 // 500ms
+        let startTime: number | null = null
+        
+        const animate = (time: number) => {
+            if (startTime === null) startTime = time
+            const elapsed = time - startTime
+            const t = Math.min(elapsed / duration, 1)
+            // Ease out cubic
+            const easeT = 1 - Math.pow(1 - t, 3)
+            
+            // Interpolate spherical coordinates
+            const r = MathUtils.lerp(startSpherical.radius, endSpherical.radius, easeT)
+            const phi = MathUtils.lerp(startSpherical.phi, endSpherical.phi, easeT)
+            const theta = MathUtils.lerp(startSpherical.theta, endSpherical.theta, easeT)
+            
+            const currentSpherical = new Spherical(r, phi, theta)
+            
+            // Apply new position and target
+            controls.target.lerpVectors(startTarget, endTarget, easeT)
+            controls.object.position.setFromSpherical(currentSpherical).add(controls.target)
+            controls.update()
+            
+            if (t < 1) {
+                animationRef.current = requestAnimationFrame(animate)
+            } else {
+                animationRef.current = null
+            }
+        }
+        
+        animationRef.current = requestAnimationFrame(animate)
+    }, [])
 
     const d = maxDim
 
@@ -101,6 +153,7 @@ export default function Viewer({
                     minDistance={maxDim * 0.5}
                     maxDistance={maxDim * 10}
                     captureOnLoad={modelId && !hasThumbnail ? handleCapture : undefined}
+                    viewOffsetX={144}
                 />
             </div>
 

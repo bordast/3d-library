@@ -191,6 +191,24 @@ function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLo
         : <GltfModel url={url} mode={mode} onLoad={onLoad} />
 }
 
+function CameraOffset({ viewOffsetX }: { viewOffsetX: number }) {
+    const { camera, size } = useThree()
+
+    useEffect(() => {
+        const activeOffset = size.width < 640 ? 0 : viewOffsetX
+        if (activeOffset !== 0 && (camera as any).setViewOffset) {
+            // A positive xOffset shifts the camera's view to the right,
+            // which visually moves the scene content to the left.
+            (camera as any).setViewOffset(size.width, size.height, activeOffset, 0, size.width, size.height)
+        } else if ((camera as any).clearViewOffset) {
+            (camera as any).clearViewOffset()
+        }
+        camera.updateProjectionMatrix()
+    }, [camera, size, viewOffsetX])
+
+    return null
+}
+
 function CaptureOnLoad({ onCapture }: { onCapture: (dataUrl: string) => void }) {
     const { gl, scene, camera } = useThree()
     const framesRef = useRef(0)
@@ -232,9 +250,10 @@ type Props = {
     minDistance?: number
     maxDistance?: number
     captureOnLoad?: (dataUrl: string) => void
+    viewOffsetX?: number
 }
 
-export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10, captureOnLoad }: Props) {
+export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10, captureOnLoad, viewOffsetX = 0 }: Props) {
     const [canvasReady, setCanvasReady] = useState(false)
     const [loaded, setLoaded] = useState(() => loadedUrls.has(url))
     const [timedOut, setTimedOut] = useState(false)
@@ -322,6 +341,7 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
                         style={{ width: '100%', height: '100%' }}
                     >
                         <Environment preset="sunset" background backgroundIntensity={0.1} backgroundBlurriness={0.8} />
+                        {viewOffsetX !== 0 && <CameraOffset viewOffsetX={viewOffsetX} />}
                         <ErrorBoundary inline onError={handleLoaderError}>
                             <Suspense fallback={null}>
                                 <SceneModel url={url} mode={mode} onLoad={handleLoad} />
