@@ -340,7 +340,7 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
                         style={{ width: '100%', height: '100%' }}
                     >
                         <Environment preset="sunset" background backgroundIntensity={0.1} backgroundBlurriness={0.8} />
-                        {viewOffsetX !== 0 && <CameraOffset viewOffsetX={viewOffsetX} />}
+                        <CameraOffset viewOffsetX={viewOffsetX} />
                         <ErrorBoundary inline onError={handleLoaderError}>
                             <Suspense fallback={null}>
                                 <SceneModel url={url} mode={mode} onLoad={handleLoad} />

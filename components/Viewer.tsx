@@ -13,12 +13,14 @@ export default function Viewer({
     modelId,
     hasThumbnail,
     name,
+    category,
     format
 }: {
     url: string
     modelId?: string
     hasThumbnail?: boolean
     name?: string
+    category?: string
     format?: string
 }) {
     const [mode, setMode] = useState<RenderMode>('solid')
@@ -28,6 +30,7 @@ export default function Viewer({
     const animationRef = useRef<number>(null)
     const [isMobile, setIsMobile] = useState(false)
     const [panelOpen, setPanelOpen] = useState(true)
+    const touchStartY = useRef(0)
 
     const handleLoad = useCallback((dim: number) => {
         setMaxDim(dim)
@@ -51,7 +54,6 @@ export default function Viewer({
                 body: JSON.stringify({ dataUrl }),
             })
         } catch {
-            // Non-critical: thumbnail will be generated on next load or via admin
             capturedRef.current = false
         }
     }, [modelId, hasThumbnail])
@@ -90,33 +92,28 @@ export default function Viewer({
         const startTarget = controls.target.clone()
         const endTarget = new Vector3(0, 0, 0)
 
-        // Convert positions to spherical coordinates relative to their targets
         const startSpherical = new Spherical().setFromVector3(startPos.clone().sub(startTarget))
         const endSpherical = new Spherical().setFromVector3(endPos.clone().sub(endTarget))
 
-        // Shortest path for theta
         const thetaDiff = endSpherical.theta - startSpherical.theta
         if (thetaDiff > Math.PI) endSpherical.theta -= 2 * Math.PI
         if (thetaDiff < -Math.PI) endSpherical.theta += 2 * Math.PI
 
-        const duration = 500 // 500ms
+        const duration = 500
         let startTime: number | null = null
 
         const animate = (time: number) => {
             if (startTime === null) startTime = time
             const elapsed = time - startTime
             const t = Math.min(elapsed / duration, 1)
-            // Ease out cubic
             const easeT = 1 - Math.pow(1 - t, 3)
 
-            // Interpolate spherical coordinates
             const r = MathUtils.lerp(startSpherical.radius, endSpherical.radius, easeT)
             const phi = MathUtils.lerp(startSpherical.phi, endSpherical.phi, easeT)
             const theta = MathUtils.lerp(startSpherical.theta, endSpherical.theta, easeT)
 
             const currentSpherical = new Spherical(r, phi, theta)
 
-            // Apply new position and target
             controls.target.lerpVectors(startTarget, endTarget, easeT)
             controls.object.position.setFromSpherical(currentSpherical).add(controls.target)
             controls.update()
@@ -130,6 +127,11 @@ export default function Viewer({
 
         animationRef.current = requestAnimationFrame(animate)
     }, [])
+
+    const handleModeSelect = useCallback((value: RenderMode) => {
+        setMode(value)
+        if (isMobile) setPanelOpen(false)
+    }, [isMobile])
 
     const d = maxDim
 
@@ -152,14 +154,14 @@ export default function Viewer({
         { value: 'albedo', label: 'Albedo (Base)' },
         { value: 'normal', label: 'Normal Map' },
         { value: 'roughness', label: 'Roughness' },
-{ value: 'emission', label: 'Emission' },
+        { value: 'emission', label: 'Emission' },
     ]
 
     const panelContent = (
         <>
             {(name || format) && (
                 <div className="flex flex-col gap-2 pb-4 border-b border-border/50">
-                    {name && <h2 className="text-base font-semibold leading-tight line-clamp-2 break-words" title={name}>{name}</h2>}
+                    {name && <h2 className="text-xl font-bold leading-tight line-clamp-2 break-words" title={name}>{name}</h2>}
                     {format && <span className="inline-flex items-center w-fit rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">{format}</span>}
                 </div>
             )}
@@ -170,7 +172,7 @@ export default function Viewer({
                     {MODEL_MODES.map(({ value, label }) => (
                         <button
                             key={value}
-                            onClick={() => setMode(value)}
+                            onClick={() => handleModeSelect(value)}
                             className={[
                                 'w-full rounded-md px-3 py-1.5 text-sm font-medium text-left transition-colors',
                                 mode === value
@@ -190,7 +192,7 @@ export default function Viewer({
                     {TEXTURE_MODES.map(({ value, label }) => (
                         <button
                             key={value}
-                            onClick={() => setMode(value)}
+                            onClick={() => handleModeSelect(value)}
                             className={[
                                 'w-full rounded-md px-3 py-1.5 text-sm font-medium text-left transition-colors',
                                 mode === value
@@ -242,10 +244,41 @@ export default function Viewer({
                 />
             </div>
 
+            {/* Floating model info — top left, below header */}
+            {(name || category || format) && (
+                <div className="sm:hidden absolute top-[72px] left-0 z-10 pl-4 pr-16 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                            {name && (
+                                <p className="text-base sm:text-lg font-bold text-white leading-tight drop-shadow" title={name}>
+                                    {name}
+                                </p>
+                            )}
+                            {category && (
+                                <p className="text-xs text-white/70 drop-shadow">{category}</p>
+                            )}
+                        </div>
+                        {format && (
+                            <span className="text-[10px] font-semibold text-white/60 uppercase tracking-wide shrink-0 mt-0.5 drop-shadow">
+                                {format}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Desktop side panel — hidden on mobile */}
             <div className="hidden sm:flex absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 w-64 max-h-[85vh] shrink-0 rounded-xl border border-border bg-card/80 backdrop-blur-md shadow-xl flex-col gap-6 p-5 overflow-y-auto z-10">
                 {panelContent}
             </div>
+
+            {/* Click-outside backdrop — closes mobile sheet */}
+            {panelOpen && (
+                <div
+                    className="sm:hidden fixed inset-0 z-[19]"
+                    onClick={() => setPanelOpen(false)}
+                />
+            )}
 
             {/* Mobile bottom sheet — hidden on desktop */}
             <div
@@ -256,22 +289,29 @@ export default function Viewer({
                     'transition-transform duration-300 ease-in-out',
                     panelOpen ? 'translate-y-0' : 'translate-y-full pointer-events-none',
                 ].join(' ')}
+                onTouchStart={(e) => { touchStartY.current = e.touches[0].clientY }}
+                onTouchEnd={(e) => {
+                    if (e.changedTouches[0].clientY - touchStartY.current > 60) setPanelOpen(false)
+                }}
             >
-                <div className="flex justify-center -mt-1 mb-2">
-                    <div className="w-10 h-1 rounded-full bg-border" />
-                </div>
                 {panelContent}
             </div>
 
             {/* Floating toggle button — mobile only */}
             <button
-                className="sm:hidden fixed bottom-6 right-4 z-30 flex items-center justify-center w-10 h-10 rounded-full bg-card/90 backdrop-blur-md border border-border shadow-lg text-foreground transition-colors hover:bg-accent active:scale-95"
+                className="sm:hidden fixed bottom-6 right-4 z-30 flex items-center justify-center w-12 h-12 rounded-full bg-card/90 backdrop-blur-md border border-border shadow-lg text-foreground transition-colors hover:bg-accent active:scale-95"
                 onClick={() => setPanelOpen(o => !o)}
                 aria-label={panelOpen ? 'Hide controls' : 'Show controls'}
             >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="size-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-                </svg>
+                {panelOpen ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="size-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="size-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                    </svg>
+                )}
             </button>
         </div>
     )

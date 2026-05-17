@@ -29,6 +29,7 @@ export default async function ModelPage({ params }: Props) {
                 modelId={model.id}
                 hasThumbnail={!!model.thumbnailUrl}
                 name={model.name}
+                category={model.category}
                 format={model.format}
             />
         </ViewTransition>
