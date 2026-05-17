@@ -16,7 +16,7 @@ import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
-export type RenderMode = 'solid' | 'wireframe' | 'uv' | 'albedo' | 'normal' | 'roughness' | 'metalness' | 'emission'
+export type RenderMode = 'solid' | 'wireframe' | 'uv' | 'albedo' | 'normal' | 'roughness' | 'emission'
 
 // Tracks URLs whose models have fully loaded at least once in this session.
 // When navigating from a card (which already loaded the model) to the detail
@@ -125,14 +125,13 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
                     albedo: new MeshBasicMaterial({ map: orig.map || null, color: orig.color || 0xffffff }),
                     normal: new MeshBasicMaterial({ map: orig.normalMap || null, color: orig.normalMap ? 0xffffff : 0x8080ff }),
                     roughness: new MeshBasicMaterial({ map: orig.roughnessMap || null, color: orig.roughnessMap ? 0xffffff : 0x808080 }),
-                    metalness: new MeshBasicMaterial({ map: orig.metalnessMap || null, color: orig.metalnessMap ? 0xffffff : 0x000000 }),
                     emission: new MeshBasicMaterial({ map: orig.emissiveMap || null, color: orig.emissive || 0x000000 }),
                 }
             }
 
             if (mode === 'uv') {
                 mesh.material = uvMaterial
-            } else if (['albedo', 'normal', 'roughness', 'metalness', 'emission'].includes(mode)) {
+            } else if (['albedo', 'normal', 'roughness', 'emission'].includes(mode)) {
                 mesh.material = mesh.userData.debugMaterials[mode]
             } else {
                 if (mesh.userData.originalMaterial) {

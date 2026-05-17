@@ -138,8 +138,7 @@ export default function Viewer({
         { value: 'albedo', label: 'Albedo (Base)' },
         { value: 'normal', label: 'Normal Map' },
         { value: 'roughness', label: 'Roughness' },
-        { value: 'metalness', label: 'Metalness' },
-        { value: 'emission', label: 'Emission' },
+{ value: 'emission', label: 'Emission' },
     ]
 
     return (
