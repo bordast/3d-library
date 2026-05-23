@@ -55,15 +55,12 @@ import { Button, buttonVariants } from '@/components/ui/button'
 export default function AdminClient({
     initialModels,
     initialCategories,
-    initialMissingMtl,
 }: {
     initialModels: Model[]
     initialCategories: Category[]
-    initialMissingMtl: string[]
 }) {
     const [models, setModels] = useState<Model[]>(initialModels)
     const [categories, setCategories] = useState<Category[]>(initialCategories)
-    const [missingMtl, setMissingMtl] = useState(() => new Set(initialMissingMtl))
     // Thumbnail generation
     const [genQueue, setGenQueue] = useState<Model[]>([])
     const [genProgress, setGenProgress] = useState({ done: 0, total: 0 })
@@ -83,10 +80,6 @@ export default function AdminClient({
         setGenProgress(prev => ({ ...prev, done: prev.done + 1 }))
     }, [])
 
-    const [connectingMtlId, setConnectingMtlId] = useState<string | null>(null)
-    const [mtlUploading, setMtlUploading] = useState(false)
-    const mtlInputRef = useRef<HTMLInputElement>(null)
-
     const [uploadingTexturesId, setUploadingTexturesId] = useState<string | null>(null)
     const texturesInputRef = useRef<HTMLInputElement>(null)
 
@@ -94,7 +87,6 @@ export default function AdminClient({
     const [uploading, setUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState<number | null>(null)
     const [uploadError, setUploadError] = useState<string | null>(null)
-    const [mtlStatus, setMtlStatus] = useState<'success' | 'error' | null>(null)
     const [textureStatus, setTextureStatus] = useState<'success' | 'error' | null>(null)
     const nameRef = useRef<HTMLInputElement>(null)
     const categorySelectRef = useRef<HTMLSelectElement>(null)
@@ -128,8 +120,8 @@ export default function AdminClient({
             return
         }
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-        if (!['.glb', '.gltf', '.obj'].includes(ext)) {
-            setUploadError('Only .glb, .gltf, and .obj files are supported.')
+        if (!['.glb', '.gltf'].includes(ext)) {
+            setUploadError('Only .glb and .gltf files are supported.')
             return
         }
 
@@ -210,37 +202,6 @@ export default function AdminClient({
         if (res.ok) setModels(prev => prev.filter(m => m.id !== id))
     }
 
-    function openMtlPicker(modelId: string) {
-        setConnectingMtlId(modelId)
-        mtlInputRef.current?.click()
-    }
-
-    async function handleMtlFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
-        const file = e.target.files?.[0]
-        if (!file || !connectingMtlId) return
-        setMtlUploading(true)
-        setMtlStatus(null)
-        try {
-            const body = new FormData()
-            body.append('file', file)
-            const res = await fetch(`/api/models/${connectingMtlId}/mtl`, { method: 'POST', body })
-            if (res.ok) {
-                const id = connectingMtlId
-                setMissingMtl(prev => { const next = new Set(prev); next.delete(id); return next })
-                setMtlStatus('success')
-            } else {
-                setMtlStatus('error')
-            }
-        } catch {
-            setMtlStatus('error')
-        } finally {
-            setMtlUploading(false)
-            setConnectingMtlId(null)
-            if (mtlInputRef.current) mtlInputRef.current.value = ''
-            setTimeout(() => setMtlStatus(null), 3000)
-        }
-    }
-
     function openTexturesPicker(modelId: string) {
         setUploadingTexturesId(modelId)
         texturesInputRef.current?.click()
@@ -317,7 +278,6 @@ export default function AdminClient({
         if (res.ok) {
             setModels([])
             setCategories([])
-            setMissingMtl(new Set())
             setGenQueue([])
             setGenProgress({ done: 0, total: 0 })
         }
@@ -426,7 +386,7 @@ export default function AdminClient({
                         <input
                             ref={fileRef}
                             type="file"
-                            accept=".glb,.gltf,.obj"
+                            accept=".glb,.gltf"
                             required
                             className="flex h-9 w-full sm:flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                         />
@@ -533,18 +493,6 @@ export default function AdminClient({
                                                     <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
                                                         {model.format}
                                                     </span>
-                                                    {missingMtl.has(model.id) && (
-                                                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                                                            MTL missing·
-                                                            <button
-                                                                onClick={() => openMtlPicker(model.id)}
-                                                                disabled={mtlUploading && connectingMtlId === model.id}
-                                                                className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
-                                                            >
-                                                                {mtlUploading && connectingMtlId === model.id ? 'Uploading…' : 'Connect'}
-                                                            </button>
-                                                        </span>
-                                                    )}
                                                     {model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && (
                                                         <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
                                                             <button
@@ -552,7 +500,7 @@ export default function AdminClient({
                                                                 disabled={uploadingTexturesId === model.id + '-loading'}
                                                                 className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
                                                             >
-                                                                {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures'}
+                                                                {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures & .bin'}
                                                             </button>
                                                         </span>
                                                     )}
@@ -598,14 +546,8 @@ export default function AdminClient({
                 </div>
             </div>
 
-            <input ref={mtlInputRef} type="file" accept=".mtl" className="hidden" onChange={handleMtlFileChosen} />
             <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
 
-            {mtlStatus && (
-                <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${mtlStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
-                    {mtlStatus === 'success' ? 'MTL file uploaded' : 'MTL upload failed'}
-                </div>
-            )}
             {textureStatus && (
                 <div className={`fixed bottom-4 right-4 z-50 rounded-md border px-4 py-2 text-sm shadow-md ${textureStatus === 'success' ? 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' : 'border-destructive/40 bg-destructive/10 text-destructive'}`}>
                     {textureStatus === 'success' ? 'Textures uploaded' : 'Texture upload failed'}

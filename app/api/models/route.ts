@@ -27,8 +27,8 @@ export async function POST(request: Request) {
     }
 
     const ext = path.extname(file.name).toLowerCase()
-    if (!['.glb', '.gltf', '.obj'].includes(ext)) {
-        return Response.json({ error: 'Only .glb, .gltf, .obj files allowed' }, { status: 400 })
+    if (!['.glb', '.gltf'].includes(ext)) {
+        return Response.json({ error: 'Only .glb, .gltf files allowed' }, { status: 400 })
     }
 
     const uploadsRoot = path.join(process.cwd(), 'public/uploads')
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
     let fileUrl: string
     try {
-        if (ext === '.obj' || ext === '.gltf') {
+        if (ext === '.gltf') {
             const stem = filename.slice(0, -(ext.length))
             const dir = path.join(uploadsRoot, ext.slice(1), stem)
             await mkdir(dir, { recursive: true })

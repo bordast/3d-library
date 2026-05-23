@@ -8,11 +8,9 @@ console.warn = (...args: unknown[]) => {
 }
 
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode, ErrorInfo } from 'react'
-import { Canvas, useThree, useLoader, useFrame } from '@react-three/fiber'
+import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment, useTexture } from '@react-three/drei'
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
-import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
-import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh, Material, Group, Loader, LoadingManager, DoubleSide, MeshBasicMaterial } from 'three'
+import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh, Material, Group, LoadingManager, DoubleSide, MeshBasicMaterial } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -38,31 +36,6 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, { failed: boolean }> {
             )
         }
         return this.props.children
-    }
-}
-
-// Loads the companion .mtl file (same path, .obj → .mtl) then sets materials on
-// OBJLoader before parsing. Falls back to no-material load if MTL is absent.
-class OBJWithMTLLoader extends Loader<Group> {
-    load(
-        url: string,
-        onLoad: (data: Group) => void,
-        onProgress?: (event: ProgressEvent) => void,
-        onError?: (err: unknown) => void,
-    ) {
-        const mtlUrl = url.replace(/\.obj(\?.*)?$/i, '.mtl')
-        const loadObj = (materials?: MTLLoader.MaterialCreator) => {
-            const objLoader = new OBJLoader(this.manager)
-            if (materials) objLoader.setMaterials(materials)
-            objLoader.load(url, onLoad, onProgress, onError)
-        }
-        const mtlLoader = new MTLLoader(this.manager)
-        mtlLoader.load(
-            mtlUrl,
-            (materials) => { materials.preload(); loadObj(materials) },
-            undefined,
-            () => loadObj(),
-        )
     }
 }
 
@@ -159,35 +132,31 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
     return <primitive object={scene} />
 }
 
-const GLTF_IMAGE_EXTS = new Set(['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ktx2', 'basis'])
+const GLTF_IMAGE_EXTS = new Set(['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ktx2', 'basis', 'bin'])
 
 // Shared manager: only rewrites image URLs through the fallback API (webp-first).
 // Non-image assets like .bin buffers are fetched directly from /uploads/.
 const gltfTextureManager = new LoadingManager()
 gltfTextureManager.setURLModifier((url) => {
-    if (url.startsWith('/uploads/gltf/')) {
-        const ext = url.split('.').pop()?.toLowerCase() ?? ''
-        if (GLTF_IMAGE_EXTS.has(ext)) return '/api/texture' + url
+    let decoded = url
+    try {
+        decoded = decodeURI(url)
+    } catch {
+        // ignore
     }
-    return url
+
+    if (decoded.startsWith('/uploads/gltf/')) {
+        const ext = decoded.split('.').pop()?.toLowerCase() ?? ''
+        if (GLTF_IMAGE_EXTS.has(ext)) return '/api/texture' + decoded
+    }
+    return decoded
 })
 
-function GltfModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
+function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
     const { scene } = useGLTF(url, undefined, undefined, (loader) => {
         loader.manager = gltfTextureManager
     })
     return <SceneContent scene={scene as Group} mode={mode} onLoad={onLoad} />
-}
-
-function ObjModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
-    const obj = useLoader(OBJWithMTLLoader, url)
-    return <SceneContent scene={obj} mode={mode} onLoad={onLoad} />
-}
-
-function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
-    return url.toLowerCase().endsWith('.obj')
-        ? <ObjModel url={url} mode={mode} onLoad={onLoad} />
-        : <GltfModel url={url} mode={mode} onLoad={onLoad} />
 }
 
 function CameraOffset({ viewOffsetX }: { viewOffsetX: number }) {

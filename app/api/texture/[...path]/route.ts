@@ -1,7 +1,7 @@
 import { readFile, access } from 'fs/promises'
 import path from 'path'
 
-const FALLBACK_EXTS = ['.webp', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ktx2', '.basis']
+const FALLBACK_EXTS = ['.webp', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ktx2', '.basis', '.bin']
 
 const MIME: Record<string, string> = {
     '.webp': 'image/webp',
@@ -12,6 +12,7 @@ const MIME: Record<string, string> = {
     '.bmp': 'image/bmp',
     '.ktx2': 'image/ktx2',
     '.basis': 'image/basis',
+    '.bin': 'application/octet-stream',
 }
 
 type Context = { params: Promise<{ path: string[] }> }
