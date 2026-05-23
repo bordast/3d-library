@@ -38,6 +38,7 @@ function ThumbnailGenerator({ models, onDone }: {
         </div>
     )
 }
+
 import { Spinner } from '@/components/ui/spinner'
 import type { Model, Category } from '@/lib/db'
 import {
@@ -61,52 +62,78 @@ export default function AdminClient({
 }) {
     const [models, setModels] = useState<Model[]>(initialModels)
     const [categories, setCategories] = useState<Category[]>(initialCategories)
-    // Thumbnail generation
+
+    // Thumbnail generation queue — processed one at a time
     const [genQueue, setGenQueue] = useState<Model[]>([])
-    const [genProgress, setGenProgress] = useState({ done: 0, total: 0 })
+    const generatingIds = new Set(genQueue.map(m => m.id))
 
-    const missingThumbnails = models.filter(m => !m.thumbnailUrl).length
+    // Upload modal
+    const [uploadOpen, setUploadOpen] = useState(false)
+    const [modalStep, setModalStep] = useState<1 | 2 | 3>(1)
+    const [pendingModel, setPendingModel] = useState<Model | null>(null)
+    const pendingModelRef = useRef<Model | null>(null)
+    const [modalThumbnailDone, setModalThumbnailDone] = useState(false)
+    const [modalThumbnailRendering, setModalThumbnailRendering] = useState(false)
 
-    function startThumbnailGeneration() {
-        const pending = models.filter(m => !m.thumbnailUrl)
-        if (!pending.length) return
-        setGenProgress({ done: 0, total: pending.length })
-        setGenQueue(pending)
+    function queueThumbnail(model: Model) {
+        if (generatingIds.has(model.id)) return
+        setGenQueue(prev => [...prev, model])
     }
 
     const handleGenDone = useCallback((id: string, url: string | null) => {
         if (url) setModels(prev => prev.map(m => m.id === id ? { ...m, thumbnailUrl: url } : m))
         setGenQueue(prev => prev.slice(1))
-        setGenProgress(prev => ({ ...prev, done: prev.done + 1 }))
+        if (pendingModelRef.current?.id === id) {
+            setModalThumbnailDone(true)
+            setModalThumbnailRendering(false)
+        }
     }, [])
 
     const [uploadingTexturesId, setUploadingTexturesId] = useState<string | null>(null)
     const texturesInputRef = useRef<HTMLInputElement>(null)
 
-    // Upload state
     const [uploading, setUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState<number | null>(null)
     const [uploadError, setUploadError] = useState<string | null>(null)
     const [textureStatus, setTextureStatus] = useState<'success' | 'error' | null>(null)
+    const [uploadedTexturesIds, setUploadedTexturesIds] = useState<Set<string>>(new Set())
     const nameRef = useRef<HTMLInputElement>(null)
     const categorySelectRef = useRef<HTMLSelectElement>(null)
     const fileRef = useRef<HTMLInputElement>(null)
 
     const MAX_FILE_SIZE = 200 * 1024 * 1024
 
-    // Model edit state
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editName, setEditName] = useState('')
     const [editCategory, setEditCategory] = useState('')
     const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
 
-    // Category state
     const [newCategoryName, setNewCategoryName] = useState('')
     const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
     const [editCategoryName, setEditCategoryName] = useState('')
     const [deleteCategoryTargetId, setDeleteCategoryTargetId] = useState<string | null>(null)
     const [categoryError, setCategoryError] = useState<string | null>(null)
     const [resetConfirm, setResetConfirm] = useState(false)
+
+    function openUploadModal() {
+        setUploadOpen(true)
+        setModalStep(1)
+        setPendingModel(null)
+        pendingModelRef.current = null
+        setModalThumbnailDone(false)
+        setModalThumbnailRendering(false)
+        setUploadError(null)
+    }
+
+    function closeUploadModal() {
+        setUploadOpen(false)
+    }
+
+    function startModalThumbnail() {
+        if (!pendingModel || modalThumbnailRendering || modalThumbnailDone) return
+        setModalThumbnailRendering(true)
+        setGenQueue(prev => [...prev, pendingModel])
+    }
 
     function handleUpload(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault()
@@ -148,11 +175,10 @@ export default function AdminClient({
                     const model: Model = JSON.parse(xhr.responseText)
                     setModels(prev => [model, ...prev])
                     form.reset()
-
-                    setGenQueue(prev => [...prev, model])
-                    setGenProgress(prev =>
-                        prev.done >= prev.total ? { done: 0, total: 1 } : { ...prev, total: prev.total + 1 }
-                    )
+                    setPendingModel(model)
+                    pendingModelRef.current = model
+                    // GLTF needs a separate texture upload step; GLB is self-contained
+                    setModalStep(model.format === '.gltf' ? 2 : 3)
                 } catch {
                     setUploadError('Unexpected server response.')
                 }
@@ -217,7 +243,15 @@ export default function AdminClient({
             const body = new FormData()
             Array.from(files).forEach(f => body.append('files', f))
             const res = await fetch(`/api/models/${id}/textures`, { method: 'POST', body })
-            setTextureStatus(res.ok ? 'success' : 'error')
+            if (res.ok) {
+                setTextureStatus('success')
+                setUploadedTexturesIds(prev => new Set(prev).add(id))
+                if (pendingModelRef.current?.id === id) {
+                    setModalStep(3)
+                }
+            } else {
+                setTextureStatus('error')
+            }
         } catch {
             setTextureStatus('error')
         } finally {
@@ -279,7 +313,6 @@ export default function AdminClient({
             setModels([])
             setCategories([])
             setGenQueue([])
-            setGenProgress({ done: 0, total: 0 })
         }
     }
 
@@ -302,9 +335,194 @@ export default function AdminClient({
     const inputCls = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
     const selectCls = 'flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer'
 
+    const STEPS = [
+        { n: 1 as const, label: 'Model file' },
+        { n: 2 as const, label: 'Textures' },
+        { n: 3 as const, label: 'Thumbnail' },
+    ]
+
+    const currentThumbnailUrl = models.find(m => m.id === pendingModel?.id)?.thumbnailUrl
+
     return (
         <>
             <ThumbnailGenerator models={genQueue} onDone={handleGenDone} />
+
+            {/* Upload modal */}
+            {uploadOpen && (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={!uploading && !modalThumbnailRendering ? closeUploadModal : undefined} />
+                    <div className="relative z-10 w-full sm:max-w-md sm:rounded-xl border-t sm:border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
+
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-6 pt-5 pb-0 shrink-0">
+                            <h2 className="text-base font-semibold">Upload model</h2>
+                            <button
+                                onClick={closeUploadModal}
+                                disabled={uploading || modalThumbnailRendering || uploadingTexturesId?.endsWith('-loading')}
+                                className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                aria-label="Close"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4">
+                                    <path d="M18 6 6 18M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Step indicator */}
+                        <div className="flex items-start px-6 pt-5 pb-4 gap-0">
+                            {STEPS.map((step, i) => (
+                                <div key={step.n} className="flex items-center flex-1 last:flex-none">
+                                    <div className="flex flex-col items-center gap-1 shrink-0">
+                                        <div className={[
+                                            'size-6 rounded-full text-[11px] font-semibold flex items-center justify-center transition-colors',
+                                            modalStep === step.n
+                                                ? 'bg-primary text-primary-foreground'
+                                                : modalStep > step.n
+                                                    ? 'bg-primary/20 text-primary'
+                                                    : 'bg-muted text-muted-foreground',
+                                        ].join(' ')}>
+                                            {modalStep > step.n ? '✓' : step.n}
+                                        </div>
+                                        <span className={[
+                                            'text-[10px] font-medium whitespace-nowrap',
+                                            modalStep === step.n ? 'text-foreground' : 'text-muted-foreground',
+                                        ].join(' ')}>{step.label}</span>
+                                    </div>
+                                    {i < STEPS.length - 1 && (
+                                        <div className={[
+                                            'flex-1 h-px mx-2 mb-4 transition-colors',
+                                            modalStep > step.n ? 'bg-primary/40' : 'bg-border',
+                                        ].join(' ')} />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="border-t border-border" />
+
+                        {/* Step 1: Upload model file */}
+                        {modalStep === 1 && (
+                            <form onSubmit={handleUpload} className="flex flex-col">
+                                <div className="flex flex-col gap-4 p-6">
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">Name</label>
+                                        <input ref={nameRef} type="text" placeholder="Model name" required className={inputCls} />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">Category</label>
+                                        <select ref={categorySelectRef} className={`${selectCls} w-full`}>
+                                            <option value="">No category</option>
+                                            {categories.map(cat => (
+                                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">
+                                            File <span className="text-muted-foreground font-normal">.glb, .gltf</span>
+                                        </label>
+                                        <input
+                                            ref={fileRef}
+                                            type="file"
+                                            accept=".glb,.gltf"
+                                            required
+                                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                        />
+                                    </div>
+                                    {uploadError && <p className="text-sm text-destructive">{uploadError}</p>}
+                                </div>
+                                <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border">
+                                    <Button type="button" variant="ghost" onClick={closeUploadModal} disabled={uploading}>Cancel</Button>
+                                    <Button type="submit" disabled={uploading}>
+                                        {uploading ? (
+                                            <>
+                                                <Spinner className="mr-2 size-3.5" />
+                                                {uploadProgress !== null && uploadProgress < 100 ? `Uploading… ${uploadProgress}%` : 'Processing…'}
+                                            </>
+                                        ) : 'Upload'}
+                                    </Button>
+                                </div>
+                            </form>
+                        )}
+
+                        {/* Step 2: Textures & .bin — required for GLTF */}
+                        {modalStep === 2 && pendingModel && (
+                            <div className="flex flex-col">
+                                <div className="flex flex-col gap-3 p-6">
+                                    <p className="text-sm text-muted-foreground">
+                                        Upload the texture images and{' '}
+                                        <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">.bin</code>{' '}
+                                        buffer files referenced by <span className="font-medium text-foreground">{pendingModel.name}</span>.
+                                    </p>
+                                    {textureStatus === 'error' && (
+                                        <p className="text-sm text-destructive">Upload failed. Please try again.</p>
+                                    )}
+                                </div>
+                                <div className="flex items-center justify-end px-6 py-4 border-t border-border">
+                                    <Button
+                                        onClick={() => openTexturesPicker(pendingModel.id)}
+                                        disabled={uploadingTexturesId === pendingModel.id + '-loading'}
+                                    >
+                                        {uploadingTexturesId === pendingModel.id + '-loading' ? (
+                                            <><Spinner className="mr-2 size-3.5" />Uploading…</>
+                                        ) : 'Choose files'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Step 3: Thumbnail */}
+                        {modalStep === 3 && pendingModel && (
+                            <div className="flex flex-col">
+                                {modalThumbnailDone ? (
+                                    <>
+                                        <div className="flex items-center gap-3 p-6">
+                                            {currentThumbnailUrl && (
+                                                <img
+                                                    src={currentThumbnailUrl}
+                                                    alt=""
+                                                    className="size-14 rounded-lg border border-border object-cover shrink-0"
+                                                />
+                                            )}
+                                            <p className="text-sm">
+                                                <span className="font-medium">{pendingModel.name}</span>
+                                                <span className="text-muted-foreground"> is ready.</span>
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center justify-end px-6 py-4 border-t border-border">
+                                            <Button onClick={closeUploadModal}>Done</Button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex flex-col gap-3 p-6">
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={closeUploadModal}
+                                                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    Skip
+                                                </button>
+                                            </div>
+                                            <p className="text-sm text-muted-foreground">
+                                                Render a thumbnail for <span className="font-medium text-foreground">{pendingModel.name}</span>.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center justify-end px-6 py-4 border-t border-border">
+                                            <Button onClick={startModalThumbnail} disabled={modalThumbnailRendering}>
+                                                {modalThumbnailRendering ? (
+                                                    <><Spinner className="mr-2 size-3.5" />Rendering…</>
+                                                ) : 'Render thumbnail'}
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="flex flex-col gap-8">
 
                 {/* Categories card */}
@@ -363,49 +581,6 @@ export default function AdminClient({
                     </div>
                 </div>
 
-                {/* Upload card */}
-                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                    <div className="flex flex-col gap-1 p-6 border-b border-border">
-                        <h2 className="text-base font-semibold leading-none tracking-tight">Upload Model</h2>
-                        <p className="text-sm text-muted-foreground">Add a new 3D model to your library. Supports .glb, .gltf, .obj</p>
-                    </div>
-                    <form onSubmit={handleUpload} className="p-6 flex flex-col sm:flex-row gap-3 flex-wrap">
-                        <input
-                            ref={nameRef}
-                            type="text"
-                            placeholder="Model name"
-                            required
-                            className={`${inputCls} sm:max-w-xs`}
-                        />
-                        <select ref={categorySelectRef} className={`${selectCls} sm:max-w-44`}>
-                            <option value="">No category</option>
-                            {categories.map(cat => (
-                                <option key={cat.id} value={cat.name}>{cat.name}</option>
-                            ))}
-                        </select>
-                        <input
-                            ref={fileRef}
-                            type="file"
-                            accept=".glb,.gltf"
-                            required
-                            className="flex h-9 w-full sm:flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-                        />
-                        <Button type="submit" disabled={uploading} size="sm">
-                            {uploading ? (
-                                <>
-                                    <Spinner className="mr-2" />
-                                    {uploadProgress !== null && uploadProgress < 100
-                                        ? `Uploading… ${uploadProgress}%`
-                                        : 'Processing…'}
-                                </>
-                            ) : 'Upload'}
-                        </Button>
-                    </form>
-                    {uploadError && (
-                        <div className="px-6 pb-4 text-sm text-destructive">{uploadError}</div>
-                    )}
-                </div>
-
                 {/* Models table card */}
                 <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
                     <div className="flex items-center justify-between p-6 border-b border-border">
@@ -413,23 +588,13 @@ export default function AdminClient({
                             <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
                             <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
                         </div>
-                        {missingThumbnails > 0 && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={startThumbnailGeneration}
-                                disabled={genQueue.length > 0}
-                            >
-                                {genQueue.length > 0
-                                    ? `Generating… ${genProgress.done}/${genProgress.total}`
-                                    : `Generate thumbnails (${missingThumbnails})`}
-                            </Button>
-                        )}
+                        <Button size="sm" onClick={openUploadModal}>Upload model</Button>
                     </div>
 
                     {models.length === 0 ? (
-                        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                            No models yet. Upload one above.
+                        <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
+                            <span>No models yet.</span>
+                            <Button size="sm" variant="outline" onClick={openUploadModal}>Upload your first model</Button>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
@@ -440,6 +605,7 @@ export default function AdminClient({
                                         <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
                                         <th className="h-10 px-4 text-left font-medium text-muted-foreground">Format</th>
                                         <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
+                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Thumbnail</th>
                                         <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
                                     </tr>
                                 </thead>
@@ -459,15 +625,7 @@ export default function AdminClient({
                                                         className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                                     />
                                                 ) : (
-                                                    <div className="flex items-center gap-3">
-                                                        <span className="font-medium">{model.name}</span>
-                                                        {genQueue.some(m => m.id === model.id) && (
-                                                            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
-                                                                <Spinner className="size-3" />
-                                                                Generating thumbnail…
-                                                            </span>
-                                                        )}
-                                                    </div>
+                                                    <span className="font-medium">{model.name}</span>
                                                 )}
                                             </td>
                                             <td className="px-4 py-3">
@@ -508,6 +666,40 @@ export default function AdminClient({
                                             </td>
                                             <td className="px-4 py-3 text-muted-foreground">
                                                 {new Date(model.createdAt).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-2">
+                                                    {model.thumbnailUrl ? (
+                                                        <img
+                                                            src={model.thumbnailUrl}
+                                                            alt=""
+                                                            className="size-8 rounded object-cover shrink-0 border border-border"
+                                                        />
+                                                    ) : (
+                                                        <div className="size-8 rounded bg-muted shrink-0 border border-border" />
+                                                    )}
+                                                    {generatingIds.has(model.id) ? (
+                                                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                                            <Spinner className="size-3 shrink-0" />
+                                                            Rendering…
+                                                        </span>
+                                                    ) : model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && !model.thumbnailUrl && !uploadedTexturesIds.has(model.id) ? (
+                                                        <button
+                                                            onClick={() => openTexturesPicker(model.id)}
+                                                            disabled={uploadingTexturesId === model.id + '-loading'}
+                                                            className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors disabled:opacity-50"
+                                                        >
+                                                            {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Upload textures & .bin'}
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => queueThumbnail(model)}
+                                                            className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors"
+                                                        >
+                                                            {model.thumbnailUrl ? 'Regenerate' : 'Render'}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-3">
                                                 <div className="flex items-center justify-end gap-2">

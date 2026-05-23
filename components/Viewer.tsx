@@ -4,21 +4,17 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { Vector3, Spherical, MathUtils } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
-import type { RenderMode } from './ModelCanvas'
+import type { RenderMode, MaterialEntry } from './ModelCanvas'
 
 const ModelCanvas = dynamic(() => import('./ModelCanvas'), { ssr: false })
 
 export default function Viewer({
     url,
-    modelId,
-    hasThumbnail,
     name,
     category,
     format
 }: {
     url: string
-    modelId?: string
-    hasThumbnail?: boolean
     name?: string
     category?: string
     format?: string
@@ -26,11 +22,12 @@ export default function Viewer({
     const [mode, setMode] = useState<RenderMode>('solid')
     const [maxDim, setMaxDim] = useState(1)
     const controlsRef = useRef<OrbitControlsType | null>(null)
-    const capturedRef = useRef(false)
     const animationRef = useRef<number>(null)
     const [isMobile, setIsMobile] = useState(false)
     const [panelOpen, setPanelOpen] = useState(true)
     const touchStartY = useRef(0)
+    const [materials, setMaterials] = useState<MaterialEntry[]>([])
+    const [materialColors, setMaterialColors] = useState<Record<string, string>>({})
 
     const handleLoad = useCallback((dim: number) => {
         setMaxDim(dim)
@@ -44,28 +41,29 @@ export default function Viewer({
         }, 50)
     }, [])
 
-    const handleCapture = useCallback(async (dataUrl: string) => {
-        if (!modelId || hasThumbnail || capturedRef.current) return
-        capturedRef.current = true
-        try {
-            await fetch(`/api/models/${modelId}/thumbnail`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataUrl }),
-            })
-        } catch {
-            capturedRef.current = false
-        }
-    }, [modelId, hasThumbnail])
-
     useEffect(() => {
-        capturedRef.current = false
         return () => {
             if (animationRef.current !== null) {
                 cancelAnimationFrame(animationRef.current)
             }
         }
     }, [url])
+
+    // Reset material state when the model URL changes
+    useEffect(() => {
+        setMaterials([])
+        setMaterialColors({})
+    }, [url])
+
+    const handleMaterials = useCallback((mats: MaterialEntry[]) => {
+        setMaterials(mats)
+        // Seed colors from the model's own material colors (first load)
+        setMaterialColors(prev => {
+            const next = { ...prev }
+            mats.forEach(m => { if (!next[m.id]) next[m.id] = m.color })
+            return next
+        })
+    }, [])
 
     useEffect(() => {
         const mq = window.matchMedia('(max-width: 639px)')
@@ -206,6 +204,25 @@ export default function Viewer({
                 </div>
             </div>
 
+            {materials.length > 0 && (
+                <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Materials</p>
+                    <div className="flex flex-col gap-1.5">
+                        {materials.map((mat) => (
+                            <label key={mat.id} className="flex items-center justify-between gap-2 text-sm text-foreground">
+                                <span className="truncate min-w-0">{mat.name}</span>
+                                <input
+                                    type="color"
+                                    value={materialColors[mat.id] ?? mat.color}
+                                    onChange={(e) => setMaterialColors(prev => ({ ...prev, [mat.id]: e.target.value }))}
+                                    className="w-7 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5 shrink-0"
+                                />
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             <div>
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Camera</p>
                 <div className="grid grid-cols-2 gap-1">
@@ -239,8 +256,9 @@ export default function Viewer({
                     orbitRef={controlsRef}
                     minDistance={maxDim * 0.5}
                     maxDistance={maxDim * 10}
-                    captureOnLoad={modelId && !hasThumbnail ? handleCapture : undefined}
                     viewOffsetX={panelOpen && !isMobile ? 144 : 0}
+                    onMaterials={handleMaterials}
+                    materialColors={materialColors}
                 />
             </div>
 
