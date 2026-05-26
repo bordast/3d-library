@@ -1,8 +1,12 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 @AGENTS.md
 
 # 3D Library
 
-A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gltf, .obj) with an interactive WebGL viewer.
+A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gltf) with an interactive WebGL viewer.
 
 ## Stack
 
@@ -18,6 +22,7 @@ A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gl
 ```bash
 npm run dev      # start dev server (port 3000)
 npm run build    # production build
+npm run start    # serve a production build
 npm run lint     # eslint
 ```
 
@@ -32,12 +37,11 @@ app/
     ModelsClient.tsx  # search/filter UI + card grid ('use client')
     [id]/page.tsx     # individual model viewer (server component + dynamic Viewer)
   admin/
-    page.tsx          # admin shell (server); checks for missing MTL files
-    AdminClient.tsx   # upload / rename / delete / thumbnail generation ('use client')
+    page.tsx          # admin shell (server component)
+    AdminClient.tsx   # 3-step upload modal, per-model thumbnail generation, rename / delete ('use client')
   api/models/
-    route.ts          # GET list, POST upload (multipart)
+    route.ts          # GET list, POST upload (multipart; .glb and .gltf only)
     [id]/route.ts     # PUT rename, DELETE (removes file/folder)
-    [id]/mtl/         # POST — upload companion .mtl for an OBJ model
     [id]/textures/    # POST — upload texture/binary files for a GLTF model
     [id]/thumbnail/   # POST — save a base64 WebP thumbnail, update model record
   api/texture/
@@ -50,7 +54,7 @@ app/
 components/
   ModelCanvas.tsx     # unified 3D canvas (ssr:false); used by Viewer and thumbnail generator
   ModelCard.tsx       # card with static thumbnail image + ViewTransition morph, links to /models/[id]
-  Viewer.tsx          # full viewer shell: solid/wireframe/UV/PBR-debug modes, animated camera presets, auto-captures thumbnail
+  Viewer.tsx          # full viewer shell: solid/wireframe/UV/PBR-debug modes, animated camera presets, material color editor
   ThemeToggle.tsx     # dark/light toggle (reads/writes .dark class on <html>)
 lib/
   db.ts               # CRUD over data/models.json; Model and Category types exported here
@@ -59,7 +63,6 @@ data/
 public/uploads/       # uploaded model files served statically
   glb/                # flat: <timestamp>-<name>.glb
   gltf/               # folder-per-model: <stem>/<timestamp>-<name>.gltf + textures + .bin
-  obj/                # folder-per-model: <stem>/<timestamp>-<name>.obj + .mtl
 public/thumbnails/    # auto-generated WebP thumbnails: <model-id>.webp
 public/textures/      # static textures used by the viewer (uv_checker.png)
 scripts/
@@ -79,7 +82,7 @@ type Model = {
   id: string
   name: string
   category: string
-  format: string       // '.glb' | '.gltf' | '.obj'
+  format: string       // '.glb' | '.gltf'
   fileUrl: string      // relative path from /public root
   createdAt: string    // ISO date string
   thumbnailUrl?: string // relative path, e.g. /thumbnails/<id>.webp
@@ -89,21 +92,19 @@ type Model = {
 ### File storage layout
 - **GLB**: flat file at `/uploads/glb/<timestamp>-<name>.glb`
 - **GLTF**: folder at `/uploads/gltf/<stem>/` containing the `.gltf` file, any referenced `.bin` buffers, and texture images. `fileUrl` is `/uploads/gltf/<stem>/<file>.gltf`.
-- **OBJ**: folder at `/uploads/obj/<stem>/` containing the `.obj` and optionally `.mtl`. `fileUrl` is `/uploads/obj/<stem>/<file>.obj`.
 
-Deletion always removes the entire folder for folder-based formats (GLTF and OBJ with subfolder layout). Detection: `fileUrl.split('/').length >= 5`.
+Deletion removes the entire folder for GLTF models. Detection: `model.format === '.gltf' && fileUrl.split('/').length >= 5`.
 
 ### API routes
 Route handlers live under `app/api/`. They import from `@/lib/db`.
 
-- `POST /api/models` — multipart upload. Stores file(s) under `public/uploads/` according to format layout above.
+- `POST /api/models` — multipart upload. Accepts `.glb` and `.gltf` (200 MB limit). Stores files under `public/uploads/` according to the format layout above.
 - `PUT /api/models/[id]` — rename and/or recategorise.
 - `DELETE /api/models/[id]` — removes the model record and its file(s)/folder.
-- `POST /api/models/[id]/mtl` — uploads a `.mtl` file into the OBJ model's folder.
 - `POST /api/models/[id]/textures` — uploads one or more texture/binary files (`.webp`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.ktx2`, `.basis`, `.bin`, `.glb`) into the GLTF model's folder.
 - `POST /api/models/[id]/thumbnail` — receives `{ dataUrl: string }` (base64 WebP), writes to `public/thumbnails/<id>.webp`, updates `thumbnailUrl` in the model record.
 - `GET /api/texture/[...path]` — proxies a texture file with format fallback: tries `.webp` first, then the originally requested extension, then `.png` / `.jpg` / `.jpeg` etc. Used by the GLTF loader.
-- `POST /api/admin/reset` — deletes all model records (`resetDb()`), removes and recreates `public/uploads/{glb,gltf,obj}` and `public/thumbnails/`. Used by the "Reset library" button in the admin danger zone.
+- `POST /api/admin/reset` — deletes all model records (`resetDb()`), removes and recreates `public/uploads/{glb,gltf}` and `public/thumbnails/`. Used by the "Reset library" button in the admin danger zone.
 
 ### 3D components
 - `ModelCanvas` is the single WebGL canvas. Must be dynamically imported with `ssr: false` everywhere it is used.
@@ -115,12 +116,14 @@ Route handlers live under `app/api/`. They import from `@/lib/db`.
 - `ModelCanvas` has a 10-second load timeout: if the model hasn't emitted `onLoad` within 10s of the canvas becoming ready, it shows "Failed to load model" with a **Retry** button.
 - The inner `ErrorBoundary` (wrapping `Suspense` inside the Canvas) accepts `inline` and `onError` props. With `inline=true` it renders `null` instead of the error card, and calls `onError` to surface the failure to `ModelCanvas` without crashing the surrounding canvas UI.
 - **`RenderMode`** is `'solid' | 'wireframe' | 'uv' | 'albedo' | 'normal' | 'roughness' | 'emission'`. It is exported from `ModelCanvas.tsx` and consumed by `Viewer.tsx`.
+- **`MaterialEntry`** is `{ id: string; name: string; color: string }`, also exported from `ModelCanvas.tsx`. `id` is the Three.js material UUID (stable within a session). After the scene loads, `SceneContent` traverses all meshes, collects unique materials by UUID, and calls `onMaterials?.()`. `ModelCanvas` accepts `onMaterials?: (mats: MaterialEntry[]) => void` and `materialColors?: Record<string, string>`. When `materialColors` is provided, a `useLayoutEffect` applies each color to both the active mesh material and `mesh.userData.originalMaterial` so render-mode switching doesn't revert user changes. A separate `useEffect` snapshots every material's original hex color on mount and restores them on unmount — required because `useGLTF` caches scenes globally and color mutations would otherwise persist to the next session.
 - **Wireframe mode** adds a `LineSegments(WireframeGeometry, LineBasicMaterial)` as a child of each mesh (`userData.wireframeOverlay = true`) so the overlay inherits all mesh transforms. Stale overlays are removed before applying any mode change. The original mesh materials are made fully transparent (`opacity: 0`) so only the wireframe overlay is visible.
 - **UV mode** replaces each mesh's material with a shared `MeshBasicMaterial({ map: uvCheckerTexture, side: DoubleSide })` loaded from `/public/textures/uv_checker.png`. `uvCheckerTexture.flipY = false` is set because GLTF models bake UVs with Y-down convention.
 - **PBR debug modes** (`albedo`, `normal`, `roughness`, `emission`) replace each mesh's material with a pre-generated `MeshBasicMaterial` that isolates one texture channel. These are created once on first encounter and stored in `mesh.userData.debugMaterials` to avoid memory leaks on repeated swaps. Original materials are saved in `mesh.userData.originalMaterial` on first use and restored when returning to `solid` or `wireframe`.
 - `SceneContent` positions the camera at `(0, maxDim * 0.5, maxDim * 1)` after centering the model. The Canvas default camera starts at `[0, 0.5, 1]`.
-- `Viewer` accepts `modelId?: string` and `hasThumbnail?: boolean`. When `modelId` is provided and `hasThumbnail` is false, it passes a `captureOnLoad` callback to `ModelCanvas` that POSTs the screenshot to `/api/models/[id]/thumbnail`. Capture fires only once per `url` (guarded by `capturedRef`); on network error `capturedRef` is reset so the next page load retries.
-- `Viewer` passes `viewOffsetX={144}` to `ModelCanvas` so the model is visually shifted left of the floating sidebar.
+- `Viewer` accepts `{ url, name?, category?, format? }`. It does not auto-capture thumbnails; thumbnail generation is triggered manually from the admin panel only.
+- `Viewer` has a **desktop right panel** (fixed, `right-4 sm:right-8`, `w-64`) and a **mobile bottom sheet** that slides in from below and can be swiped down (>60 px swipe) or tapped-outside to close. A circular toggle button (`bottom-6 right-4`) is shown on mobile to open/close the sheet. `viewOffsetX={panelOpen && !isMobile ? 144 : 0}` is passed to `ModelCanvas` — offset is only applied when the panel is visible on desktop.
+- `Viewer` has a **Materials** section in the panel that appears once `onMaterials` fires. Each entry shows the material name and a native `<input type="color">` that drives `materialColors` state. `handleMaterials` seeds initial colors from the model on first load without overwriting any existing overrides. The `url` change effect resets both `materials` and `materialColors` to empty.
 - `Viewer` camera presets (Front/Back/Left/Right/Top/Bottom) and Reset all call `moveTo(x, y, z)`. `moveTo` animates the camera over 500 ms using spherical coordinate interpolation with cubic ease-out via `requestAnimationFrame`. It takes the shortest angular path by clamping the theta delta to ±π. Reset target: `moveTo(0, maxDim * 0.5, maxDim * 1)` — matches `SceneContent` initial position.
 - Three.js `OrbitControls` comes from `@react-three/drei`, typed as `OrbitControlsType` from `three-stdlib`.
 - The `THREE.Clock` deprecation warning is suppressed at the module level in `ModelCanvas.tsx`. This is necessary because `@react-three/fiber` v9 still uses the deprecated API. Do not remove the `console.warn` patch.
@@ -129,13 +132,15 @@ Route handlers live under `app/api/`. They import from `@/lib/db`.
 GLTF files with external textures use a module-level `gltfTextureManager` (`THREE.LoadingManager`) set on the `GLTFLoader` via `useGLTF`'s `extendLoader` callback. Its URL modifier intercepts image URLs under `/uploads/gltf/` and rewrites them to `/api/texture/uploads/gltf/...`, which applies the webp-first fallback. Non-image assets (`.bin` buffers) are not rewritten and load directly from `/uploads/`.
 
 ### Admin panel
-- **Upload** uses `XMLHttpRequest` (not `fetch`) to get real-time progress via `xhr.upload.onprogress`. The button label shows `"Uploading… 42%"` while transferring and `"Processing…"` once the server is handling the file. Client-side validation (200 MB limit, allowed extensions) runs before the request is sent.
-- **MTL / texture uploads** show a fixed-position toast notification (success or error, auto-dismissed after 3 s).
+- **Upload flow** is a **3-step modal**: step 1 uploads the model file via `XMLHttpRequest` (for real-time progress — button shows `"Uploading… 42%"` then `"Processing…"`); step 2 uploads textures/`.bin` (required for GLTF, skippable for GLB); step 3 triggers thumbnail generation. Client-side validation (200 MB limit, `.glb`/`.gltf` only) runs before the XHR is sent.
+- After step 1 succeeds, `pendingModel` state and `pendingModelRef` (a ref) are set to the new model. `pendingModelRef` is used inside callbacks (`handleGenDone`, texture upload handler) to avoid stale closures.
+- **Texture uploads** (step 2 and the per-row "Upload textures & .bin" button) post to `POST /api/models/[id]/textures` and show a fixed-position toast notification (success or error, auto-dismissed after 3 s). `uploadedTexturesIds: Set<string>` (session state) tracks which models have had textures uploaded so the table can switch from "Upload textures & .bin" to "Render" without requiring a page reload.
+- Per-model thumbnail column logic: if generating → spinner; if GLTF folder-based with no thumbnail and no session textures upload → "Upload textures & .bin" button; otherwise → "Render" (no thumbnail) or "Regenerate" (has thumbnail).
 - **Danger zone** — a "Reset library" button at the bottom of the admin page opens a confirmation dialog, then calls `POST /api/admin/reset` to wipe all models, files, and thumbnails.
 
 ### Thumbnails
 - `ModelCard` shows a static `<img src={model.thumbnailUrl}>` when a thumbnail exists, or a placeholder cube icon when not.
-- Thumbnails are generated on demand from the admin panel: the "Generate thumbnails (N)" button in the Models card header queues all models missing a thumbnail and processes them one at a time through a hidden off-screen `ModelCanvas` (256×256, `position: fixed; left: -9999px`). Only one WebGL context is live at a time. Progress is shown as `"Generating… 2/5"`. Each result is saved via `POST /api/models/[id]/thumbnail`.
+- Thumbnails are generated on demand per model from the admin table (Render / Regenerate buttons). They are processed one at a time through a hidden off-screen `ThumbnailGenerator` component (`position: fixed; left: -9999px`, 256×256) that renders a `ModelCanvas` and fires `captureOnLoad`. Only one WebGL context is live at a time. `genQueue: Model[]` drives the queue; `handleGenDone` slices the first item after each completion. Each result is saved via `POST /api/models/[id]/thumbnail`.
 - The `ViewTransition` morph from card (`<img>`) to detail (`<canvas>`) still works because both are wrapped in matching `<ViewTransition name={`model-preview-${id}`} share="morph">` elements.
 
 ### View transitions
@@ -150,7 +155,10 @@ GLTF files with external textures use a module-level `gltfTextureManager` (`THRE
 Design tokens are CSS custom properties defined in `globals.css` (shadcn/ui-style palette). Tailwind v4 picks them up via `@theme inline`. Use semantic tokens (`bg-background`, `text-muted-foreground`, `border-border`, etc.) — never raw hex or hardcoded colors. Dark mode uses the `.dark` class on `<html>`.
 
 ### Supported file formats
-`.glb`, `.gltf`, `.obj` only. Validation is enforced in both the API route and the admin upload form.
+`.glb` and `.gltf` only. Validation is enforced in both the API route (`app/api/models/route.ts`) and the admin upload form.
+
+### LAN development
+`next.config.ts` auto-detects local network IPs via `os.networkInterfaces()` and adds them to `allowedDevOrigins`, so the dev server is reachable on the local network (e.g. from a phone) without CORS errors.
 
 ## Commit message convention
 
@@ -173,7 +181,7 @@ Every commit message starts with a capitalised **verb prefix**, followed by a sh
 ```
 Add ModelCard skeleton loading state
 Fix Viewer wireframe mode not toggling on first click
-Update admin upload form to accept .obj files
+Update admin upload form to accept .gltf files
 Remove unused ThemeContext provider
 Refactor db.ts slug generation into a shared utility
 ```

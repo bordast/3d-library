@@ -41,6 +41,8 @@ yarn-error.log*
 
 # testing
 /coverage
+test_fetch.js
+test_fetch.mjs
 
 # local claude premissions
 .claude

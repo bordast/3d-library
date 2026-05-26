@@ -31,21 +31,13 @@ export async function DELETE(_: Request, { params }: Context) {
     if (!model) return Response.json({ error: 'Not found' }, { status: 404 })
 
     try {
-        const isFolderBased =
-            (model.format === '.obj' && model.fileUrl.startsWith('/uploads/obj/') && model.fileUrl.split('/').length >= 5) ||
-            (model.format === '.gltf' && model.fileUrl.startsWith('/uploads/gltf/') && model.fileUrl.split('/').length >= 5)
+        const isFolderBased = model.format === '.gltf' && model.fileUrl.startsWith('/uploads/gltf/') && model.fileUrl.split('/').length >= 5
         if (isFolderBased) {
-            // Remove entire <format>/<stem>/ directory (contains model + textures/mtl)
+            // Remove entire <format>/<stem>/ directory (contains model + textures/bin)
             const dir = path.join(process.cwd(), 'public', path.dirname(model.fileUrl))
             await rm(dir, { recursive: true, force: true })
         } else {
             await unlink(path.join(process.cwd(), 'public', model.fileUrl))
-            // Old flat OBJ layout: also remove companion .mtl if present
-            if (model.format === '.obj') {
-                await unlink(
-                    path.join(process.cwd(), 'public', model.fileUrl.replace(/\.obj$/i, '.mtl'))
-                ).catch(() => {})
-            }
         }
     } catch {
         // file may already be gone

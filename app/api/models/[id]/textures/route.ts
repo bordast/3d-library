@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: Context) {
         for (const file of files) {
             const ext = path.extname(file.name).toLowerCase()
             if (!ALLOWED_EXTS.has(ext)) continue
-            const safeName = path.basename(file.name).replace(/\s+/g, '-')
+            const safeName = path.basename(file.name)
             const buffer = Buffer.from(await file.arrayBuffer())
             await writeFile(path.join(modelDir, safeName), buffer)
             saved.push(safeName)

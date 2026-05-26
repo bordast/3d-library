@@ -8,15 +8,14 @@ console.warn = (...args: unknown[]) => {
 }
 
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, Component, ReactNode, ErrorInfo } from 'react'
-import { Canvas, useThree, useLoader, useFrame } from '@react-three/fiber'
+import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment, useTexture } from '@react-three/drei'
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
-import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
-import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh, Material, Group, Loader, LoadingManager, DoubleSide, MeshBasicMaterial } from 'three'
+import { Box3, Vector3, WireframeGeometry, LineSegments, LineBasicMaterial, Mesh, Material, Group, LoadingManager, DoubleSide, MeshBasicMaterial, MeshStandardMaterial } from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { Spinner } from '@/components/ui/spinner'
 
 export type RenderMode = 'solid' | 'wireframe' | 'uv' | 'albedo' | 'normal' | 'roughness' | 'emission'
+export type MaterialEntry = { id: string; name: string; color: string }
 
 // Tracks URLs whose models have fully loaded at least once in this session.
 // When navigating from a card (which already loaded the model) to the detail
@@ -41,33 +40,14 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, { failed: boolean }> {
     }
 }
 
-// Loads the companion .mtl file (same path, .obj → .mtl) then sets materials on
-// OBJLoader before parsing. Falls back to no-material load if MTL is absent.
-class OBJWithMTLLoader extends Loader<Group> {
-    load(
-        url: string,
-        onLoad: (data: Group) => void,
-        onProgress?: (event: ProgressEvent) => void,
-        onError?: (err: unknown) => void,
-    ) {
-        const mtlUrl = url.replace(/\.obj(\?.*)?$/i, '.mtl')
-        const loadObj = (materials?: MTLLoader.MaterialCreator) => {
-            const objLoader = new OBJLoader(this.manager)
-            if (materials) objLoader.setMaterials(materials)
-            objLoader.load(url, onLoad, onProgress, onError)
-        }
-        const mtlLoader = new MTLLoader(this.manager)
-        mtlLoader.load(
-            mtlUrl,
-            (materials) => { materials.preload(); loadObj(materials) },
-            undefined,
-            () => loadObj(),
-        )
-    }
-}
-
-function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode; onLoad: (maxDim: number) => void }) {
+function SceneContent({ scene, mode, onLoad, onMaterials, materialColors }: {
+    scene: Group; mode: RenderMode; onLoad: (maxDim: number) => void
+    onMaterials?: (mats: MaterialEntry[]) => void
+    materialColors?: Record<string, string>
+}) {
     const { camera } = useThree()
+    const onMaterialsRef = useRef(onMaterials)
+    useLayoutEffect(() => { onMaterialsRef.current = onMaterials }, [onMaterials])
 
     // Load the UV checker texture. This will suspend the component until the texture is loaded.
     // You should add a `uv_checker.png` file to your `/public/textures/` directory.
@@ -96,6 +76,21 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
         camera.updateProjectionMatrix()
 
         onLoad(maxDim)
+
+        // Collect unique materials by UUID and report them to the parent
+        const seen = new Map<string, MaterialEntry>()
+        scene.traverse((child) => {
+            const mesh = child as Mesh
+            if (!mesh.isMesh) return
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            mats.forEach((mat: any, i) => {
+                if (seen.has(mat.uuid)) return
+                const name = mat.name || (mats.length > 1 ? `Material ${i + 1}` : 'Material')
+                const color = mat.color ? '#' + mat.color.getHexString() : '#ffffff'
+                seen.set(mat.uuid, { id: mat.uuid, name, color })
+            })
+        })
+        onMaterialsRef.current?.(Array.from(seen.values()))
     }, [scene, camera, onLoad])
 
     useLayoutEffect(() => {
@@ -156,38 +151,95 @@ function SceneContent({ scene, mode, onLoad }: { scene: Group; mode: RenderMode;
         })
     }, [scene, mode, uvMaterial])
 
+    // Capture original material colors on mount so we can restore them on unmount.
+    // useGLTF caches scene objects globally — without restoration, color mutations
+    // persist in the cache and reappear the next time the same model is opened.
+    useEffect(() => {
+        const origColors: Record<string, string> = {}
+        scene.traverse((child) => {
+            const mesh = child as Mesh
+            if (!mesh.isMesh) return
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            mats.forEach((mat: any) => {
+                if (mat?.color && !origColors[mat.uuid]) {
+                    origColors[mat.uuid] = '#' + mat.color.getHexString()
+                }
+            })
+        })
+        return () => {
+            scene.traverse((child) => {
+                const mesh = child as Mesh
+                if (!mesh.isMesh) return
+                const restore = (mat: any) => {
+                    if (mat?.color && origColors[mat.uuid]) {
+                        mat.color.set(origColors[mat.uuid])
+                        mat.needsUpdate = true
+                    }
+                }
+                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+                mats.forEach(restore)
+                const orig = mesh.userData.originalMaterial
+                if (orig) {
+                    const origMats = Array.isArray(orig) ? orig : [orig]
+                    origMats.forEach(restore)
+                }
+            })
+        }
+    }, [scene])
+
+    useLayoutEffect(() => {
+        if (!materialColors || Object.keys(materialColors).length === 0) return
+        scene.traverse((child) => {
+            const mesh = child as Mesh
+            if (!mesh.isMesh) return
+            const applyColor = (mat: any) => {
+                if (!mat?.color || !materialColors[mat.uuid]) return
+                mat.color.set(materialColors[mat.uuid])
+                mat.needsUpdate = true
+            }
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            mats.forEach(applyColor)
+            // Also apply to stored original so mode-switching doesn't revert the color
+            const orig = mesh.userData.originalMaterial
+            if (orig) {
+                const origMats = Array.isArray(orig) ? orig : [orig]
+                origMats.forEach(applyColor)
+            }
+        })
+    }, [scene, materialColors])
+
     return <primitive object={scene} />
 }
 
-const GLTF_IMAGE_EXTS = new Set(['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ktx2', 'basis'])
+const GLTF_IMAGE_EXTS = new Set(['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ktx2', 'basis', 'bin'])
 
 // Shared manager: only rewrites image URLs through the fallback API (webp-first).
 // Non-image assets like .bin buffers are fetched directly from /uploads/.
 const gltfTextureManager = new LoadingManager()
 gltfTextureManager.setURLModifier((url) => {
-    if (url.startsWith('/uploads/gltf/')) {
-        const ext = url.split('.').pop()?.toLowerCase() ?? ''
-        if (GLTF_IMAGE_EXTS.has(ext)) return '/api/texture' + url
+    let decoded = url
+    try {
+        decoded = decodeURI(url)
+    } catch {
+        // ignore
     }
-    return url
+
+    if (decoded.startsWith('/uploads/gltf/')) {
+        const ext = decoded.split('.').pop()?.toLowerCase() ?? ''
+        if (GLTF_IMAGE_EXTS.has(ext)) return '/api/texture' + decoded
+    }
+    return decoded
 })
 
-function GltfModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
+function SceneModel({ url, mode, onLoad, onMaterials, materialColors }: {
+    url: string; mode: RenderMode; onLoad: (maxDim: number) => void
+    onMaterials?: (mats: MaterialEntry[]) => void
+    materialColors?: Record<string, string>
+}) {
     const { scene } = useGLTF(url, undefined, undefined, (loader) => {
         loader.manager = gltfTextureManager
     })
-    return <SceneContent scene={scene as Group} mode={mode} onLoad={onLoad} />
-}
-
-function ObjModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
-    const obj = useLoader(OBJWithMTLLoader, url)
-    return <SceneContent scene={obj} mode={mode} onLoad={onLoad} />
-}
-
-function SceneModel({ url, mode, onLoad }: { url: string; mode: RenderMode; onLoad: (maxDim: number) => void }) {
-    return url.toLowerCase().endsWith('.obj')
-        ? <ObjModel url={url} mode={mode} onLoad={onLoad} />
-        : <GltfModel url={url} mode={mode} onLoad={onLoad} />
+    return <SceneContent scene={scene as Group} mode={mode} onLoad={onLoad} onMaterials={onMaterials} materialColors={materialColors} />
 }
 
 function CameraOffset({ viewOffsetX }: { viewOffsetX: number }) {
@@ -250,9 +302,11 @@ type Props = {
     maxDistance?: number
     captureOnLoad?: (dataUrl: string) => void
     viewOffsetX?: number
+    onMaterials?: (mats: MaterialEntry[]) => void
+    materialColors?: Record<string, string>
 }
 
-export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10, captureOnLoad, viewOffsetX = 0 }: Props) {
+export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, minDistance = 0.5, maxDistance = 10, captureOnLoad, viewOffsetX = 0, onMaterials, materialColors }: Props) {
     const [canvasReady, setCanvasReady] = useState(false)
     const [loaded, setLoaded] = useState(() => loadedUrls.has(url))
     const [timedOut, setTimedOut] = useState(false)
@@ -343,7 +397,7 @@ export default function ModelCanvas({ url, mode = 'solid', onLoad, orbitRef, min
                         <CameraOffset viewOffsetX={viewOffsetX} />
                         <ErrorBoundary inline onError={handleLoaderError}>
                             <Suspense fallback={null}>
-                                <SceneModel url={url} mode={mode} onLoad={handleLoad} />
+                                <SceneModel url={url} mode={mode} onLoad={handleLoad} onMaterials={onMaterials} materialColors={materialColors} />
                                 {captureOnLoad && <CaptureOnLoad onCapture={captureOnLoad} />}
                             </Suspense>
                         </ErrorBoundary>
