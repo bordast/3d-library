@@ -154,6 +154,15 @@ export async function updateVideo(
   return data.videos[idx]
 }
 
+export async function updateVideoThumbnail(id: string, thumbnailUrl: string): Promise<Video | null> {
+  const data = await readData()
+  const idx = data.videos.findIndex(v => v.id === id)
+  if (idx === -1) return null
+  data.videos[idx] = { ...data.videos[idx], thumbnailUrl }
+  await writeData(data)
+  return data.videos[idx]
+}
+
 export async function deleteVideo(id: string): Promise<Video | null> {
   const data = await readData()
   const idx = data.videos.findIndex(v => v.id === id)

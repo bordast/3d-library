@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 
 const ModelCanvas = dynamic(() => import('@/components/ModelCanvas'), { ssr: false })
@@ -36,6 +36,145 @@ function ThumbnailGenerator({ models, onDone }: {
         <div aria-hidden style={{ position: 'fixed', left: '-9999px', top: 0, width: 256, height: 256, pointerEvents: 'none' }}>
             <ModelCanvas key={model.id} url={model.fileUrl} captureOnLoad={handleCapture} />
         </div>
+    )
+}
+
+const FRAME_POINTS = [0.1, 0.5, 0.9]
+
+function VideoThumbnailCapture({ video, onDone, onCancel }: {
+    video: Video
+    onDone: (id: string, url: string | null) => void
+    onCancel: () => void
+}) {
+    const videoRef = useRef<HTMLVideoElement>(null)
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const captureIdxRef = useRef(0)
+    const [frames, setFrames] = useState<string[]>([])
+    const [saving, setSaving] = useState(false)
+
+    useEffect(() => {
+        const vid = videoRef.current
+        const canvas = canvasRef.current
+        if (!vid || !canvas) return
+
+        function grabFrame(): string {
+            const ctx = canvas!.getContext('2d')!
+            const vw = vid!.videoWidth, vh = vid!.videoHeight
+            const size = Math.min(vw, vh)
+            const sx = (vw - size) / 2, sy = (vh - size) / 2
+            ctx.drawImage(vid!, sx, sy, size, size, 0, 0, 256, 256)
+            return canvas!.toDataURL('image/webp', 0.85)
+        }
+
+        function onSeeked() {
+            const idx = captureIdxRef.current
+            const frame = grabFrame()
+            setFrames(prev => [...prev, frame])
+            const next = idx + 1
+            captureIdxRef.current = next
+            if (next < FRAME_POINTS.length) {
+                vid!.currentTime = vid!.duration * FRAME_POINTS[next]
+            }
+        }
+
+        function onLoaded() {
+            captureIdxRef.current = 0
+            setFrames([])
+            vid!.currentTime = vid!.duration * FRAME_POINTS[0]
+        }
+
+        vid.addEventListener('loadedmetadata', onLoaded)
+        vid.addEventListener('seeked', onSeeked)
+        return () => {
+            vid.removeEventListener('loadedmetadata', onLoaded)
+            vid.removeEventListener('seeked', onSeeked)
+        }
+    }, [video.id])
+
+    async function selectFrame(dataUrl: string) {
+        setSaving(true)
+        try {
+            const res = await fetch(`/api/videos/${video.id}/thumbnail`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataUrl }),
+            })
+            if (res.ok) {
+                const data = await res.json()
+                onDone(video.id, data.thumbnailUrl)
+                return
+            }
+        } catch { /* fall through */ }
+        setSaving(false)
+        onDone(video.id, null)
+    }
+
+    const capturing = frames.length < FRAME_POINTS.length
+
+    return (
+        <>
+            {/* Hidden video + canvas for frame extraction */}
+            <div aria-hidden style={{ position: 'fixed', left: '-9999px', top: 0, pointerEvents: 'none' }}>
+                <video ref={videoRef} src={video.sourceUrl} muted playsInline preload="metadata" style={{ width: 256, height: 256 }} />
+                <canvas ref={canvasRef} width={256} height={256} />
+            </div>
+
+            {/* Frame picker modal */}
+            <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={!saving ? onCancel : undefined} />
+                <div className="relative z-10 w-full sm:max-w-lg sm:rounded-xl border-t sm:border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
+
+                    <div className="flex items-center justify-between px-6 pt-5 pb-4 shrink-0">
+                        <div>
+                            <h2 className="text-base font-semibold">Choose a thumbnail</h2>
+                            <p className="text-xs text-muted-foreground mt-0.5">{video.name}</p>
+                        </div>
+                        <button
+                            onClick={onCancel}
+                            disabled={saving}
+                            className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+                            aria-label="Close"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4">
+                                <path d="M18 6 6 18M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div className="border-t border-border" />
+
+                    {capturing ? (
+                        <div className="flex flex-col items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
+                            <Spinner className="size-5" />
+                            Capturing frames… {frames.length}/{FRAME_POINTS.length}
+                        </div>
+                    ) : (
+                        <div className="p-6 flex flex-col gap-4">
+                            <p className="text-sm text-muted-foreground">Click a frame to use it as the thumbnail.</p>
+                            <div className="grid grid-cols-3 gap-3">
+                                {frames.map((frame, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => !saving && selectFrame(frame)}
+                                        disabled={saving}
+                                        className="relative rounded-lg overflow-hidden border-2 border-transparent hover:border-primary focus-visible:border-primary transition-colors aspect-square disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <img src={frame} alt={`Frame ${i + 1}`} className="w-full h-full object-cover" />
+                                        <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                            {Math.round(FRAME_POINTS[i] * 100)}%
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex items-center justify-end px-6 py-4 border-t border-border">
+                        <Button variant="ghost" size="sm" onClick={onCancel} disabled={saving}>Cancel</Button>
+                    </div>
+                </div>
+            </div>
+        </>
     )
 }
 
@@ -150,6 +289,14 @@ export default function AdminClient({
     const videoFileRef = useRef<HTMLInputElement>(null)
     const videoFileNameRef = useRef<HTMLInputElement>(null)
     const videoFileCategorySelectRef = useRef<HTMLSelectElement>(null)
+
+    // Single video being captured at a time (user must pick a frame before starting another)
+    const [capturingVideo, setCapturingVideo] = useState<Video | null>(null)
+
+    const handleVideoCaptureDone = useCallback((id: string, url: string | null) => {
+        if (url) setVideos(prev => prev.map(v => v.id === id ? { ...v, thumbnailUrl: url } : v))
+        setCapturingVideo(null)
+    }, [])
 
     // ─── Model handlers ────────────────────────────────────
 
@@ -585,6 +732,13 @@ export default function AdminClient({
     return (
         <>
             <ThumbnailGenerator models={genQueue} onDone={handleGenDone} />
+            {capturingVideo && (
+                <VideoThumbnailCapture
+                    video={capturingVideo}
+                    onDone={handleVideoCaptureDone}
+                    onCancel={() => setCapturingVideo(null)}
+                />
+            )}
 
             {/* ─── Model upload modal ──────────────────────────── */}
             {uploadOpen && (
@@ -1218,6 +1372,7 @@ export default function AdminClient({
                                             <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
                                             <th className="h-10 px-4 text-left font-medium text-muted-foreground">Source</th>
                                             <th className="h-10 px-4 text-left font-medium text-muted-foreground">URL / Path</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Thumbnail</th>
                                             <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
                                             <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
                                         </tr>
@@ -1268,6 +1423,28 @@ export default function AdminClient({
                                                     <span className="truncate block text-xs" title={video.sourceUrl}>
                                                         {video.sourceUrl.length > 40 ? video.sourceUrl.slice(0, 40) + '…' : video.sourceUrl}
                                                     </span>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        {video.thumbnailUrl ? (
+                                                            <img
+                                                                src={video.thumbnailUrl}
+                                                                alt=""
+                                                                className="size-8 rounded object-cover shrink-0 border border-border"
+                                                            />
+                                                        ) : (
+                                                            <div className="size-8 rounded bg-muted shrink-0 border border-border" />
+                                                        )}
+                                                        {video.sourceType === 'upload' && (
+                                                            <button
+                                                                onClick={() => setCapturingVideo(video)}
+                                                                disabled={capturingVideo !== null}
+                                                                className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                                            >
+                                                                {video.thumbnailUrl ? 'Recapture' : 'Capture'}
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="px-4 py-3 text-muted-foreground">
                                                     {new Date(video.createdAt).toLocaleDateString()}
