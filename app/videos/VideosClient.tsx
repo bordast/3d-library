@@ -4,12 +4,37 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import VideoCard from '@/components/VideoCard'
 import type { Video } from '@/lib/videodb'
 
+function GridIcon({ active }: { active: boolean }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor" strokeWidth={2}
+            className={`size-4 transition-colors ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+    )
+}
+
+function CategoryIcon({ active }: { active: boolean }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor" strokeWidth={2}
+            className={`size-4 transition-colors ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 6v12" />
+        </svg>
+    )
+}
+
 export default function VideosClient({ videos }: { videos: Video[] }) {
     const [nameQuery, setNameQuery] = useState('')
     const [selectedCategory, setSelectedCategory] = useState('')
     const [nameOpen, setNameOpen] = useState(false)
     const [catOpen, setCatOpen] = useState(false)
     const [focusedIdx, setFocusedIdx] = useState(-1)
+    const [viewMode, setViewMode] = useState<'grid' | 'category'>('grid')
     const nameRef = useRef<HTMLDivElement>(null)
     const catRef = useRef<HTMLDivElement>(null)
 
@@ -45,6 +70,17 @@ export default function VideosClient({ videos }: { videos: Video[] }) {
         const catMatch = selectedCategory === '' || v.category === selectedCategory
         return nameMatch && catMatch
     }), [videos, nq, selectedCategory])
+
+    // Groups for category view — sorted by category name, preserving filtered results
+    const categoryGroups = useMemo(() => {
+        const map = new Map<string, Video[]>()
+        for (const v of filtered) {
+            const existing = map.get(v.category)
+            if (existing) existing.push(v)
+            else map.set(v.category, [v])
+        }
+        return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))
+    }, [filtered])
 
     useEffect(() => {
         function onPointerDown(e: PointerEvent) {
@@ -86,10 +122,20 @@ export default function VideosClient({ videos }: { videos: Video[] }) {
     const catOptions = [{ value: '', label: 'All categories' }, ...categories.map(c => ({ value: c, label: c }))]
     const catLabel = selectedCategory || 'All categories'
 
+    const videoGrid = (items: Video[]) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {items.map(video => (
+                <VideoCard key={video.id} video={video} />
+            ))}
+        </div>
+    )
+
     return (
         <>
+            {/* Toolbar */}
             <div className="flex flex-col sm:flex-row gap-3 mb-6">
 
+                {/* Name search */}
                 <div ref={nameRef} className="relative flex-1">
                     <div className="relative">
                         <svg
@@ -144,51 +190,83 @@ export default function VideosClient({ videos }: { videos: Video[] }) {
                     )}
                 </div>
 
-                <div ref={catRef} className="relative sm:w-52 shrink-0">
-                    <button
-                        onClick={() => setCatOpen(o => !o)}
-                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors hover:bg-accent/50"
-                    >
-                        <span className={selectedCategory ? 'text-foreground' : 'text-muted-foreground'}>
-                            {catLabel}
-                        </span>
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                            stroke="currentColor" strokeWidth={2}
-                            className={['size-4 text-muted-foreground transition-transform', catOpen ? 'rotate-180' : ''].join(' ')}
+                {/* Category dropdown — hidden in category view (grouping replaces it) */}
+                {viewMode === 'grid' && (
+                    <div ref={catRef} className="relative sm:w-52 shrink-0">
+                        <button
+                            onClick={() => setCatOpen(o => !o)}
+                            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors hover:bg-accent/50"
                         >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
-                        </svg>
-                    </button>
+                            <span className={selectedCategory ? 'text-foreground' : 'text-muted-foreground'}>
+                                {catLabel}
+                            </span>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor" strokeWidth={2}
+                                className={['size-4 text-muted-foreground transition-transform', catOpen ? 'rotate-180' : ''].join(' ')}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                            </svg>
+                        </button>
 
-                    {catOpen && (
-                        <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md border border-border bg-card shadow-md overflow-hidden">
-                            {catOptions.map(({ value, label }) => (
-                                <button
-                                    key={value || '__all__'}
-                                    onPointerDown={e => { e.preventDefault(); selectCategory(value) }}
-                                    className={[
-                                        'w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors',
-                                        value === selectedCategory
-                                            ? 'bg-accent text-accent-foreground'
-                                            : 'hover:bg-accent hover:text-accent-foreground',
-                                    ].join(' ')}
-                                >
-                                    {label}
-                                    {value === selectedCategory && (
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} className="size-3.5 shrink-0">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                        </svg>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                        {catOpen && (
+                            <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md border border-border bg-card shadow-md overflow-hidden">
+                                {catOptions.map(({ value, label }) => (
+                                    <button
+                                        key={value || '__all__'}
+                                        onPointerDown={e => { e.preventDefault(); selectCategory(value) }}
+                                        className={[
+                                            'w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors',
+                                            value === selectedCategory
+                                                ? 'bg-accent text-accent-foreground'
+                                                : 'hover:bg-accent hover:text-accent-foreground',
+                                        ].join(' ')}
+                                    >
+                                        {label}
+                                        {value === selectedCategory && (
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} className="size-3.5 shrink-0">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* View mode toggle */}
+                <div className="flex items-center gap-1 shrink-0 self-start sm:self-auto">
+                    <button
+                        onClick={() => setViewMode('grid')}
+                        aria-label="Grid view"
+                        className={[
+                            'flex h-10 w-10 items-center justify-center rounded-md border transition-colors',
+                            viewMode === 'grid'
+                                ? 'border-input bg-accent'
+                                : 'border-transparent hover:bg-accent/50',
+                        ].join(' ')}
+                    >
+                        <GridIcon active={viewMode === 'grid'} />
+                    </button>
+                    <button
+                        onClick={() => { setViewMode('category'); setSelectedCategory('') }}
+                        aria-label="Category view"
+                        className={[
+                            'flex h-10 w-10 items-center justify-center rounded-md border transition-colors',
+                            viewMode === 'category'
+                                ? 'border-input bg-accent'
+                                : 'border-transparent hover:bg-accent/50',
+                        ].join(' ')}
+                    >
+                        <CategoryIcon active={viewMode === 'category'} />
+                    </button>
                 </div>
 
             </div>
 
-            {filtered.length === 0 ? (
+            {/* Empty state */}
+            {filtered.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center border border-dashed border-border rounded-lg">
                     <p className="text-muted-foreground text-sm">No videos match your filters.</p>
                     <button
@@ -198,10 +276,25 @@ export default function VideosClient({ videos }: { videos: Video[] }) {
                         Clear filters
                     </button>
                 </div>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {filtered.map(video => (
-                        <VideoCard key={video.id} video={video} />
+            )}
+
+            {/* Grid view */}
+            {filtered.length > 0 && viewMode === 'grid' && videoGrid(filtered)}
+
+            {/* Category view */}
+            {filtered.length > 0 && viewMode === 'category' && (
+                <div className="flex flex-col gap-10">
+                    {categoryGroups.map(([category, items]) => (
+                        <section key={category}>
+                            <div className="flex items-baseline gap-3 mb-4">
+                                <h2 className="text-base font-semibold text-foreground capitalize">{category}</h2>
+                                <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                                    {items.length} {items.length === 1 ? 'video' : 'videos'}
+                                </span>
+                                <div className="flex-1 h-px bg-border" />
+                            </div>
+                            {videoGrid(items)}
+                        </section>
                     ))}
                 </div>
             )}
