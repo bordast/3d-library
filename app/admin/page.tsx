@@ -1,18 +1,26 @@
 import { getModels, getCategories } from '@/lib/db'
+import { getVideos, getVideoCategories } from '@/lib/videodb'
 import AdminClient from './AdminClient'
 
 export const dynamic = 'force-dynamic'
 
 export default async function AdminPage() {
-    const [models, categories] = await Promise.all([getModels(), getCategories()])
+    const [models, categories, videos, videoCategories] = await Promise.all([
+        getModels(), getCategories(), getVideos(), getVideoCategories(),
+    ])
 
     return (
         <div>
             <div className="mb-8">
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Dashboard</h1>
-                <p className="text-sm text-muted-foreground mt-1">Manage your 3D model library.</p>
+                <p className="text-sm text-muted-foreground mt-1">Manage your 3D model and video library.</p>
             </div>
-            <AdminClient initialModels={models} initialCategories={categories} />
+            <AdminClient
+                initialModels={models}
+                initialCategories={categories}
+                initialVideos={videos}
+                initialVideoCategories={videoCategories}
+            />
         </div>
     )
 }

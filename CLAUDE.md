@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # 3D Library
 
-A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gltf) with an interactive WebGL viewer.
+A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gltf) with an interactive WebGL viewer, plus a video gallery for YouTube, Vimeo, and uploaded MP4/WebM files.
 
 ## Stack
 
@@ -15,7 +15,7 @@ A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gl
 - **Three.js 0.184 / @react-three/fiber v9 / @react-three/drei v10** for 3D rendering
 - **Tailwind CSS v4** — configured via `@import "tailwindcss"` in [app/globals.css](app/globals.css), no `tailwind.config`
 - **TypeScript 5** — strict, path alias `@/` maps to project root
-- No database — data lives in [data/models.json](data/models.json); all reads/writes go through [lib/db.ts](lib/db.ts)
+- No database — model data lives in [data/models.json](data/models.json) via [lib/db.ts](lib/db.ts); video data lives in [data/videos.json](data/videos.json) via [lib/videodb.ts](lib/videodb.ts). Each JSON file is a standalone store — never mix them.
 
 ## Commands
 
@@ -36,14 +36,24 @@ app/
     page.tsx          # model grid (server component)
     ModelsClient.tsx  # search/filter UI + card grid ('use client')
     [id]/page.tsx     # individual model viewer (server component + dynamic Viewer)
+  videos/
+    page.tsx          # video grid (server component)
+    VideosClient.tsx  # search/filter UI + card grid ('use client')
+    [id]/page.tsx     # video detail/player page (server component)
   admin/
-    page.tsx          # admin shell (server component)
-    AdminClient.tsx   # 3-step upload modal, per-model thumbnail generation, rename / delete ('use client')
+    page.tsx          # admin shell — fetches models+categories+videos+videoCategories in parallel
+    AdminClient.tsx   # Models/Videos tab switcher; model upload modal; video add modal; CRUD for both ('use client')
   api/models/
     route.ts          # GET list, POST upload (multipart; .glb and .gltf only)
     [id]/route.ts     # PUT rename, DELETE (removes file/folder)
     [id]/textures/    # POST — upload texture/binary files for a GLTF model
     [id]/thumbnail/   # POST — save a base64 WebP thumbnail, update model record
+  api/videos/
+    route.ts          # GET list, POST create (JSON URL or multipart file upload)
+    [id]/route.ts     # PUT rename/recategorise, DELETE (removes file if sourceType=upload)
+    categories/
+      route.ts        # GET list, POST create
+      [id]/route.ts   # PUT rename (cascades to videos), DELETE (resets videos to uncategorised)
   api/texture/
     [...path]/route.ts  # GET — serve textures with webp-first fallback
   api/categories/
@@ -54,15 +64,21 @@ app/
 components/
   ModelCanvas.tsx     # unified 3D canvas (ssr:false); used by Viewer and thumbnail generator
   ModelCard.tsx       # card with static thumbnail image + ViewTransition morph, links to /models/[id]
+  VideoCard.tsx       # card with thumbnail or play-icon placeholder + source-type badge, links to /videos/[id]
+  VideoPlayer.tsx     # renders YouTube iframe / Vimeo iframe / HTML5 <video> based on sourceType ('use client')
   Viewer.tsx          # full viewer shell: solid/wireframe/UV/PBR-debug modes, animated camera presets, material color editor
   ThemeToggle.tsx     # dark/light toggle (reads/writes .dark class on <html>)
+  NavLinks.tsx        # active-aware nav links (models / videos / admin) ('use client')
 lib/
   db.ts               # CRUD over data/models.json; Model and Category types exported here
+  videodb.ts          # CRUD over data/videos.json; Video and VideoCategory types exported here
 data/
   models.json         # source of truth for all model records
+  videos.json         # source of truth for all video records (separate store)
 public/uploads/       # uploaded model files served statically
   glb/                # flat: <timestamp>-<name>.glb
   gltf/               # folder-per-model: <stem>/<timestamp>-<name>.gltf + textures + .bin
+  videos/             # flat: <timestamp>-<name>.mp4 / .webm
 public/thumbnails/    # auto-generated WebP thumbnails: <model-id>.webp
 public/textures/      # static textures used by the viewer (uv_checker.png)
 scripts/
@@ -131,12 +147,42 @@ Route handlers live under `app/api/`. They import from `@/lib/db`.
 ### GLTF texture loading
 GLTF files with external textures use a module-level `gltfTextureManager` (`THREE.LoadingManager`) set on the `GLTFLoader` via `useGLTF`'s `extendLoader` callback. Its URL modifier intercepts image URLs under `/uploads/gltf/` and rewrites them to `/api/texture/uploads/gltf/...`, which applies the webp-first fallback. Non-image assets (`.bin` buffers) are not rewritten and load directly from `/uploads/`.
 
+### Video gallery
+
+`lib/videodb.ts` is the only place that reads or writes `data/videos.json`. It is a direct structural mirror of `lib/db.ts` with its own private `toSlug`/`uniqueSlug` helpers (not shared). Never add video logic to `db.ts` or model logic to `videodb.ts`.
+
+The `Video` type:
+```ts
+type Video = {
+  id: string           // slug derived from name
+  name: string
+  category: string     // video category name, or 'uncategorised'
+  sourceType: 'youtube' | 'vimeo' | 'upload'
+  sourceUrl: string    // original YouTube/Vimeo URL, or /uploads/videos/<file>
+  thumbnailUrl?: string // YouTube: https://img.youtube.com/vi/{id}/hqdefault.jpg; others: absent
+  createdAt: string
+}
+```
+
+Video and model categories are **completely independent** — `VideoCategory` lives only in `data/videos.json` and is managed by `/api/videos/categories`.
+
+**API routes** (`app/api/videos/`):
+- `POST /api/videos` with JSON body `{ name, url, category? }` — URL path: parses YouTube ID (handles `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`) or Vimeo ID; rejects unrecognised URLs; auto-sets `thumbnailUrl` from YouTube's `hqdefault.jpg`.
+- `POST /api/videos` with `multipart/form-data` — upload path: validates `.mp4`/`.webm`, 500 MB limit, stores flat at `public/uploads/videos/<timestamp>-<name>.ext`.
+- `DELETE /api/videos/[id]` — removes the JSON record; additionally `unlink`s the file if `sourceType === 'upload'`.
+
+**`VideoPlayer`** derives the embed URL from `sourceUrl` at render time (no stored embed URL) — same parsing logic as the API route, duplicated in the component intentionally to keep each boundary self-contained.
+
+**`VideoCard`** has no `ViewTransition` wrapper — view transitions are specific to the 3D model preview flow and are not used for videos.
+
 ### Admin panel
+- **The admin page has a Models/Videos tab switcher** at the top. Models tab contains the existing upload flow + categories + table + danger zone. Videos tab contains video categories + videos table + add video modal. State for each tab is fully isolated — no shared state variables.
 - **Upload flow** is a **3-step modal**: step 1 uploads the model file via `XMLHttpRequest` (for real-time progress — button shows `"Uploading… 42%"` then `"Processing…"`); step 2 uploads textures/`.bin` (required for GLTF, skippable for GLB); step 3 triggers thumbnail generation. Client-side validation (200 MB limit, `.glb`/`.gltf` only) runs before the XHR is sent.
 - After step 1 succeeds, `pendingModel` state and `pendingModelRef` (a ref) are set to the new model. `pendingModelRef` is used inside callbacks (`handleGenDone`, texture upload handler) to avoid stale closures.
 - **Texture uploads** (step 2 and the per-row "Upload textures & .bin" button) post to `POST /api/models/[id]/textures` and show a fixed-position toast notification (success or error, auto-dismissed after 3 s). `uploadedTexturesIds: Set<string>` (session state) tracks which models have had textures uploaded so the table can switch from "Upload textures & .bin" to "Render" without requiring a page reload.
 - Per-model thumbnail column logic: if generating → spinner; if GLTF folder-based with no thumbnail and no session textures upload → "Upload textures & .bin" button; otherwise → "Render" (no thumbnail) or "Regenerate" (has thumbnail).
-- **Danger zone** — a "Reset library" button at the bottom of the admin page opens a confirmation dialog, then calls `POST /api/admin/reset` to wipe all models, files, and thumbnails.
+- **Video add modal** is a **2-step modal**: step 1 is a source-type picker (YouTube URL / Vimeo URL / Upload file); step 2 shows either a URL form (JSON `POST /api/videos`) or a file upload form (XHR with progress, same pattern as the model upload). Uses separate `ref`s from the model upload form to avoid collisions.
+- **Danger zone** — a "Reset library" button at the bottom of the Models tab opens a confirmation dialog, then calls `POST /api/admin/reset` to wipe all models, files, and thumbnails. Video data is unaffected by this reset.
 
 ### Thumbnails
 - `ModelCard` shows a static `<img src={model.thumbnailUrl}>` when a thumbnail exists, or a placeholder cube icon when not.

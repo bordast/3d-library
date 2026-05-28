@@ -1,0 +1,26 @@
+import { updateVideoCategory, deleteVideoCategory } from '@/lib/videodb'
+
+type Context = { params: Promise<{ id: string }> }
+
+export async function PUT(request: Request, { params }: Context) {
+  const { id } = await params
+  let body: { name?: string }
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  if (!body.name?.trim()) {
+    return Response.json({ error: 'Name is required' }, { status: 400 })
+  }
+  const category = await updateVideoCategory(id, body.name.trim())
+  if (!category) return Response.json({ error: 'Not found' }, { status: 404 })
+  return Response.json(category)
+}
+
+export async function DELETE(_: Request, { params }: Context) {
+  const { id } = await params
+  const category = await deleteVideoCategory(id)
+  if (!category) return Response.json({ error: 'Not found' }, { status: 404 })
+  return new Response(null, { status: 204 })
+}

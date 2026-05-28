@@ -41,6 +41,7 @@ function ThumbnailGenerator({ models, onDone }: {
 
 import { Spinner } from '@/components/ui/spinner'
 import type { Model, Category } from '@/lib/db'
+import type { Video, VideoCategory } from '@/lib/videodb'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -56,18 +57,24 @@ import { Button, buttonVariants } from '@/components/ui/button'
 export default function AdminClient({
     initialModels,
     initialCategories,
+    initialVideos,
+    initialVideoCategories,
 }: {
     initialModels: Model[]
     initialCategories: Category[]
+    initialVideos: Video[]
+    initialVideoCategories: VideoCategory[]
 }) {
+    // ─── Tab ───────────────────────────────────────────────
+    const [activeTab, setActiveTab] = useState<'models' | 'videos'>('models')
+
+    // ─── Models state ──────────────────────────────────────
     const [models, setModels] = useState<Model[]>(initialModels)
     const [categories, setCategories] = useState<Category[]>(initialCategories)
 
-    // Thumbnail generation queue — processed one at a time
     const [genQueue, setGenQueue] = useState<Model[]>([])
     const generatingIds = new Set(genQueue.map(m => m.id))
 
-    // Upload modal
     const [uploadOpen, setUploadOpen] = useState(false)
     const [modalStep, setModalStep] = useState<1 | 2 | 3>(1)
     const [pendingModel, setPendingModel] = useState<Model | null>(null)
@@ -114,6 +121,37 @@ export default function AdminClient({
     const [deleteCategoryTargetId, setDeleteCategoryTargetId] = useState<string | null>(null)
     const [categoryError, setCategoryError] = useState<string | null>(null)
     const [resetConfirm, setResetConfirm] = useState(false)
+
+    // ─── Videos state ──────────────────────────────────────
+    const [videos, setVideos] = useState<Video[]>(initialVideos)
+    const [videoCategories, setVideoCategories] = useState<VideoCategory[]>(initialVideoCategories)
+
+    const [videoModalOpen, setVideoModalOpen] = useState(false)
+    const [videoModalStep, setVideoModalStep] = useState<1 | 2>(1)
+    const [videoModalSourceType, setVideoModalSourceType] = useState<'youtube' | 'vimeo' | 'upload' | null>(null)
+    const [videoUploading, setVideoUploading] = useState(false)
+    const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null)
+    const [videoUploadError, setVideoUploadError] = useState<string | null>(null)
+
+    const [editingVideoId, setEditingVideoId] = useState<string | null>(null)
+    const [editVideoName, setEditVideoName] = useState('')
+    const [editVideoCategory, setEditVideoCategory] = useState('')
+    const [deleteVideoTargetId, setDeleteVideoTargetId] = useState<string | null>(null)
+
+    const [newVideoCategoryName, setNewVideoCategoryName] = useState('')
+    const [editingVideoCategoryId, setEditingVideoCategoryId] = useState<string | null>(null)
+    const [editVideoCategoryName, setEditVideoCategoryName] = useState('')
+    const [deleteVideoCategoryTargetId, setDeleteVideoCategoryTargetId] = useState<string | null>(null)
+    const [videoCategoryError, setVideoCategoryError] = useState<string | null>(null)
+
+    const videoNameRef = useRef<HTMLInputElement>(null)
+    const videoUrlRef = useRef<HTMLInputElement>(null)
+    const videoCategorySelectRef = useRef<HTMLSelectElement>(null)
+    const videoFileRef = useRef<HTMLInputElement>(null)
+    const videoFileNameRef = useRef<HTMLInputElement>(null)
+    const videoFileCategorySelectRef = useRef<HTMLSelectElement>(null)
+
+    // ─── Model handlers ────────────────────────────────────
 
     function openUploadModal() {
         setUploadOpen(true)
@@ -177,7 +215,6 @@ export default function AdminClient({
                     form.reset()
                     setPendingModel(model)
                     pendingModelRef.current = model
-                    // GLTF needs a separate texture upload step; GLB is self-contained
                     setModalStep(model.format === '.gltf' ? 2 : 3)
                 } catch {
                     setUploadError('Unexpected server response.')
@@ -332,6 +369,202 @@ export default function AdminClient({
         }
     }
 
+    // ─── Video handlers ────────────────────────────────────
+
+    function openVideoModal() {
+        setVideoModalOpen(true)
+        setVideoModalStep(1)
+        setVideoModalSourceType(null)
+        setVideoUploadError(null)
+        setVideoUploading(false)
+        setVideoUploadProgress(null)
+    }
+
+    function closeVideoModal() {
+        setVideoModalOpen(false)
+    }
+
+    async function handleVideoUrlSubmit(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault()
+        const name = videoNameRef.current?.value.trim()
+        const url = videoUrlRef.current?.value.trim()
+        const category = videoCategorySelectRef.current?.value || undefined
+        if (!name || !url) return
+        setVideoUploadError(null)
+        setVideoUploading(true)
+        try {
+            const res = await fetch('/api/videos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, url, category }),
+            })
+            if (res.ok) {
+                const video: Video = await res.json()
+                setVideos(prev => [video, ...prev])
+                closeVideoModal()
+            } else {
+                const data = await res.json().catch(() => ({}))
+                setVideoUploadError(data.error ?? 'Failed to add video')
+            }
+        } catch {
+            setVideoUploadError('Network error')
+        } finally {
+            setVideoUploading(false)
+        }
+    }
+
+    function handleVideoFileUpload(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault()
+        const name = videoFileNameRef.current?.value.trim()
+        const file = videoFileRef.current?.files?.[0]
+        if (!name || !file) return
+
+        const MAX_VIDEO_SIZE = 500 * 1024 * 1024
+        if (file.size > MAX_VIDEO_SIZE) {
+            setVideoUploadError('File exceeds 500 MB limit.')
+            return
+        }
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+        if (!['.mp4', '.webm'].includes(ext)) {
+            setVideoUploadError('Only .mp4 and .webm files are allowed.')
+            return
+        }
+
+        const body = new FormData()
+        body.append('name', name)
+        const cat = videoFileCategorySelectRef.current?.value
+        if (cat) body.append('category', cat)
+        body.append('file', file)
+
+        setVideoUploading(true)
+        setVideoUploadProgress(0)
+        setVideoUploadError(null)
+
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', '/api/videos')
+        xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) setVideoUploadProgress(Math.round((ev.loaded / ev.total) * 100))
+        }
+        xhr.onload = () => {
+            setVideoUploading(false)
+            setVideoUploadProgress(null)
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const video: Video = JSON.parse(xhr.responseText)
+                    setVideos(prev => [video, ...prev])
+                    closeVideoModal()
+                } catch {
+                    setVideoUploadError('Unexpected server response.')
+                }
+            } else {
+                try {
+                    const data = JSON.parse(xhr.responseText)
+                    setVideoUploadError(data.error ?? `Upload failed (${xhr.status})`)
+                } catch {
+                    setVideoUploadError(`Upload failed (${xhr.status})`)
+                }
+            }
+        }
+        xhr.onerror = () => {
+            setVideoUploading(false)
+            setVideoUploadProgress(null)
+            setVideoUploadError('Network error — upload could not be completed.')
+        }
+        xhr.send(body)
+    }
+
+    function startEditVideo(video: Video) {
+        setEditingVideoId(video.id)
+        setEditVideoName(video.name)
+        setEditVideoCategory(video.category)
+    }
+
+    async function saveEditVideo(id: string) {
+        const trimmedName = editVideoName.trim()
+        if (!trimmedName) return
+        const res = await fetch(`/api/videos/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: trimmedName, category: editVideoCategory }),
+        })
+        if (res.ok) {
+            const updated: Video = await res.json()
+            setVideos(prev => prev.map(v => v.id === id ? updated : v))
+        }
+        setEditingVideoId(null)
+    }
+
+    async function confirmDeleteVideo() {
+        if (!deleteVideoTargetId) return
+        const id = deleteVideoTargetId
+        setDeleteVideoTargetId(null)
+        const res = await fetch(`/api/videos/${id}`, { method: 'DELETE' })
+        if (res.ok) setVideos(prev => prev.filter(v => v.id !== id))
+    }
+
+    async function handleCreateVideoCategory(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault()
+        const name = newVideoCategoryName.trim()
+        if (!name) return
+        setVideoCategoryError(null)
+        const res = await fetch('/api/videos/categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        })
+        if (res.ok) {
+            const cat: VideoCategory = await res.json()
+            setVideoCategories(prev => [...prev, cat])
+            setNewVideoCategoryName('')
+        } else {
+            const data = await res.json().catch(() => ({}))
+            setVideoCategoryError(data.error ?? 'Failed to create category')
+        }
+    }
+
+    function startEditVideoCategory(cat: VideoCategory) {
+        setEditingVideoCategoryId(cat.id)
+        setEditVideoCategoryName(cat.name)
+    }
+
+    async function saveEditVideoCategory(id: string) {
+        const name = editVideoCategoryName.trim()
+        if (!name) return
+        const res = await fetch(`/api/videos/categories/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        })
+        if (res.ok) {
+            const updated: VideoCategory = await res.json()
+            const old = videoCategories.find(c => c.id === id)
+            setVideoCategories(prev => prev.map(c => c.id === id ? updated : c))
+            if (old) {
+                setVideos(prev => prev.map(v =>
+                    v.category === old.name ? { ...v, category: updated.name } : v
+                ))
+            }
+        }
+        setEditingVideoCategoryId(null)
+    }
+
+    async function confirmDeleteVideoCategory() {
+        if (!deleteVideoCategoryTargetId) return
+        const id = deleteVideoCategoryTargetId
+        const cat = videoCategories.find(c => c.id === id)
+        setDeleteVideoCategoryTargetId(null)
+        const res = await fetch(`/api/videos/categories/${id}`, { method: 'DELETE' })
+        if (res.ok) {
+            setVideoCategories(prev => prev.filter(c => c.id !== id))
+            if (cat) {
+                setVideos(prev => prev.map(v =>
+                    v.category === cat.name ? { ...v, category: 'uncategorised' } : v
+                ))
+            }
+        }
+    }
+
+    // ─── Shared styles ─────────────────────────────────────
     const inputCls = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
     const selectCls = 'flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer'
 
@@ -343,17 +576,22 @@ export default function AdminClient({
 
     const currentThumbnailUrl = models.find(m => m.id === pendingModel?.id)?.thumbnailUrl
 
+    const SOURCE_TYPE_LABELS: Record<Video['sourceType'], string> = {
+        youtube: 'YouTube',
+        vimeo: 'Vimeo',
+        upload: 'Upload',
+    }
+
     return (
         <>
             <ThumbnailGenerator models={genQueue} onDone={handleGenDone} />
 
-            {/* Upload modal */}
+            {/* ─── Model upload modal ──────────────────────────── */}
             {uploadOpen && (
                 <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={!uploading && !modalThumbnailRendering ? closeUploadModal : undefined} />
                     <div className="relative z-10 w-full sm:max-w-md sm:rounded-xl border-t sm:border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
 
-                        {/* Header */}
                         <div className="flex items-center justify-between px-6 pt-5 pb-0 shrink-0">
                             <h2 className="text-base font-semibold">Upload model</h2>
                             <button
@@ -368,7 +606,6 @@ export default function AdminClient({
                             </button>
                         </div>
 
-                        {/* Step indicator */}
                         <div className="flex items-start px-6 pt-5 pb-4 gap-0">
                             {STEPS.map((step, i) => (
                                 <div key={step.n} className="flex items-center flex-1 last:flex-none">
@@ -400,7 +637,6 @@ export default function AdminClient({
 
                         <div className="border-t border-border" />
 
-                        {/* Step 1: Upload model file */}
                         {modalStep === 1 && (
                             <form onSubmit={handleUpload} className="flex flex-col">
                                 <div className="flex flex-col gap-4 p-6">
@@ -445,7 +681,6 @@ export default function AdminClient({
                             </form>
                         )}
 
-                        {/* Step 2: Textures & .bin — required for GLTF */}
                         {modalStep === 2 && pendingModel && (
                             <div className="flex flex-col">
                                 <div className="flex flex-col gap-3 p-6">
@@ -471,7 +706,6 @@ export default function AdminClient({
                             </div>
                         )}
 
-                        {/* Step 3: Thumbnail */}
                         {modalStep === 3 && pendingModel && (
                             <div className="flex flex-col">
                                 {modalThumbnailDone ? (
@@ -523,220 +757,545 @@ export default function AdminClient({
                 </div>
             )}
 
-            <div className="flex flex-col gap-8">
+            {/* ─── Video add modal ─────────────────────────────── */}
+            {videoModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={!videoUploading ? closeVideoModal : undefined} />
+                    <div className="relative z-10 w-full sm:max-w-md sm:rounded-xl border-t sm:border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
 
-                {/* Categories card */}
-                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                    <div className="flex flex-col gap-1 p-6 border-b border-border">
-                        <h2 className="text-base font-semibold leading-none tracking-tight">Categories</h2>
-                        <p className="text-sm text-muted-foreground">Manage categories for organising your models.</p>
-                    </div>
-                    <div className="p-6 flex flex-col gap-4">
-                        <form onSubmit={handleCreateCategory} className="flex gap-2">
-                            <input
-                                value={newCategoryName}
-                                onChange={e => setNewCategoryName(e.target.value)}
-                                type="text"
-                                placeholder="New category name"
-                                className={`${inputCls} max-w-xs`}
-                            />
-                            <Button type="submit" size="sm">Add</Button>
-                        </form>
-                        {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
+                        <div className="flex items-center justify-between px-6 pt-5 pb-4 shrink-0">
+                            <h2 className="text-base font-semibold">Add video</h2>
+                            <button
+                                onClick={closeVideoModal}
+                                disabled={videoUploading}
+                                className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                aria-label="Close"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4">
+                                    <path d="M18 6 6 18M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
 
-                        {categories.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No categories yet. Add one above.</p>
-                        ) : (
-                            <div className="flex flex-col gap-2">
-                                {categories.map(cat => (
-                                    <div key={cat.id} className="flex items-center gap-2">
-                                        {editingCategoryId === cat.id ? (
-                                            <>
-                                                <input
-                                                    value={editCategoryName}
-                                                    onChange={e => setEditCategoryName(e.target.value)}
-                                                    onKeyDown={e => {
-                                                        if (e.key === 'Enter') saveEditCategory(cat.id)
-                                                        if (e.key === 'Escape') setEditingCategoryId(null)
-                                                    }}
-                                                    autoFocus
-                                                    className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                                />
-                                                <Button onClick={() => saveEditCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
-                                                <Button onClick={() => setEditingCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
-                                                    {cat.name}
-                                                </span>
-                                                <Button onClick={() => startEditCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
-                                                <Button onClick={() => setDeleteCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
-                                            </>
-                                        )}
+                        <div className="border-t border-border" />
+
+                        {/* Step 1: source type picker */}
+                        {videoModalStep === 1 && (
+                            <div className="flex flex-col gap-3 p-6">
+                                <p className="text-sm text-muted-foreground">Choose how you want to add a video.</p>
+                                <div className="flex flex-col gap-2">
+                                    {([
+                                        { type: 'youtube' as const, label: 'YouTube URL', desc: 'Paste a youtube.com or youtu.be link' },
+                                        { type: 'vimeo' as const, label: 'Vimeo URL', desc: 'Paste a vimeo.com link' },
+                                        { type: 'upload' as const, label: 'Upload file', desc: 'Upload an .mp4 or .webm file (max 500 MB)' },
+                                    ]).map(({ type, label, desc }) => (
+                                        <button
+                                            key={type}
+                                            onClick={() => { setVideoModalSourceType(type); setVideoModalStep(2); setVideoUploadError(null) }}
+                                            className="flex items-start gap-3 rounded-lg border border-border p-4 text-left transition-colors hover:bg-accent/50"
+                                        >
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-sm font-medium">{label}</span>
+                                                <span className="text-xs text-muted-foreground">{desc}</span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Step 2: URL form */}
+                        {videoModalStep === 2 && (videoModalSourceType === 'youtube' || videoModalSourceType === 'vimeo') && (
+                            <form onSubmit={handleVideoUrlSubmit} className="flex flex-col">
+                                <div className="flex flex-col gap-4 p-6">
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">Name</label>
+                                        <input ref={videoNameRef} type="text" placeholder="Video name" required className={inputCls} />
                                     </div>
-                                ))}
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">
+                                            {videoModalSourceType === 'youtube' ? 'YouTube' : 'Vimeo'} URL
+                                        </label>
+                                        <input
+                                            ref={videoUrlRef}
+                                            type="url"
+                                            placeholder={videoModalSourceType === 'youtube' ? 'https://www.youtube.com/watch?v=…' : 'https://vimeo.com/…'}
+                                            required
+                                            className={inputCls}
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">Category</label>
+                                        <select ref={videoCategorySelectRef} className={`${selectCls} w-full`}>
+                                            <option value="">No category</option>
+                                            {videoCategories.map(cat => (
+                                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    {videoUploadError && <p className="text-sm text-destructive">{videoUploadError}</p>}
+                                </div>
+                                <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                                    <button type="button" onClick={() => setVideoModalStep(1)} className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Back</button>
+                                    <div className="flex gap-2">
+                                        <Button type="button" variant="ghost" onClick={closeVideoModal} disabled={videoUploading}>Cancel</Button>
+                                        <Button type="submit" disabled={videoUploading}>
+                                            {videoUploading ? <><Spinner className="mr-2 size-3.5" />Adding…</> : 'Add video'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </form>
+                        )}
+
+                        {/* Step 2: file upload form */}
+                        {videoModalStep === 2 && videoModalSourceType === 'upload' && (
+                            <form onSubmit={handleVideoFileUpload} className="flex flex-col">
+                                <div className="flex flex-col gap-4 p-6">
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">Name</label>
+                                        <input ref={videoFileNameRef} type="text" placeholder="Video name" required className={inputCls} />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">Category</label>
+                                        <select ref={videoFileCategorySelectRef} className={`${selectCls} w-full`}>
+                                            <option value="">No category</option>
+                                            {videoCategories.map(cat => (
+                                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-sm font-medium">
+                                            File <span className="text-muted-foreground font-normal">.mp4, .webm</span>
+                                        </label>
+                                        <input
+                                            ref={videoFileRef}
+                                            type="file"
+                                            accept=".mp4,.webm"
+                                            required
+                                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                        />
+                                    </div>
+                                    {videoUploadError && <p className="text-sm text-destructive">{videoUploadError}</p>}
+                                </div>
+                                <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                                    <button type="button" onClick={() => setVideoModalStep(1)} className="text-sm text-muted-foreground hover:text-foreground transition-colors">← Back</button>
+                                    <div className="flex gap-2">
+                                        <Button type="button" variant="ghost" onClick={closeVideoModal} disabled={videoUploading}>Cancel</Button>
+                                        <Button type="submit" disabled={videoUploading}>
+                                            {videoUploading ? (
+                                                <>
+                                                    <Spinner className="mr-2 size-3.5" />
+                                                    {videoUploadProgress !== null && videoUploadProgress < 100 ? `Uploading… ${videoUploadProgress}%` : 'Processing…'}
+                                                </>
+                                            ) : 'Upload'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Tab switcher ─────────────────────────────────── */}
+            <div className="flex gap-1 mb-8 border-b border-border">
+                {(['models', 'videos'] as const).map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={[
+                            'px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px',
+                            activeTab === tab
+                                ? 'border-primary text-foreground'
+                                : 'border-transparent text-muted-foreground hover:text-foreground',
+                        ].join(' ')}
+                    >
+                        {tab === 'models' ? 'Models' : 'Videos'}
+                    </button>
+                ))}
+            </div>
+
+            {/* ─── Models tab ───────────────────────────────────── */}
+            {activeTab === 'models' && (
+                <div className="flex flex-col gap-8">
+
+                    {/* Categories card */}
+                    <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                        <div className="flex flex-col gap-1 p-6 border-b border-border">
+                            <h2 className="text-base font-semibold leading-none tracking-tight">Categories</h2>
+                            <p className="text-sm text-muted-foreground">Manage categories for organising your models.</p>
+                        </div>
+                        <div className="p-6 flex flex-col gap-4">
+                            <form onSubmit={handleCreateCategory} className="flex gap-2">
+                                <input
+                                    value={newCategoryName}
+                                    onChange={e => setNewCategoryName(e.target.value)}
+                                    type="text"
+                                    placeholder="New category name"
+                                    className={`${inputCls} max-w-xs`}
+                                />
+                                <Button type="submit" size="sm">Add</Button>
+                            </form>
+                            {categoryError && <p className="text-sm text-destructive">{categoryError}</p>}
+
+                            {categories.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No categories yet. Add one above.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2">
+                                    {categories.map(cat => (
+                                        <div key={cat.id} className="flex items-center gap-2">
+                                            {editingCategoryId === cat.id ? (
+                                                <>
+                                                    <input
+                                                        value={editCategoryName}
+                                                        onChange={e => setEditCategoryName(e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') saveEditCategory(cat.id)
+                                                            if (e.key === 'Escape') setEditingCategoryId(null)
+                                                        }}
+                                                        autoFocus
+                                                        className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                    />
+                                                    <Button onClick={() => saveEditCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                    <Button onClick={() => setEditingCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
+                                                        {cat.name}
+                                                    </span>
+                                                    <Button onClick={() => startEditCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
+                                                    <Button onClick={() => setDeleteCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Models table card */}
+                    <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                        <div className="flex items-center justify-between p-6 border-b border-border">
+                            <div className="flex flex-col gap-1">
+                                <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
+                                <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
+                            </div>
+                            <Button size="sm" onClick={openUploadModal}>Upload model</Button>
+                        </div>
+
+                        {models.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
+                                <span>No models yet.</span>
+                                <Button size="sm" variant="outline" onClick={openUploadModal}>Upload your first model</Button>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-border bg-muted/50">
+                                            <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Format</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Thumbnail</th>
+                                            <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {models.map(model => (
+                                            <tr key={model.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                                                <td className="px-6 py-3">
+                                                    {editingId === model.id ? (
+                                                        <input
+                                                            value={editName}
+                                                            onChange={e => setEditName(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') saveEdit(model.id)
+                                                                if (e.key === 'Escape') setEditingId(null)
+                                                            }}
+                                                            autoFocus
+                                                            className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium">{model.name}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    {editingId === model.id ? (
+                                                        <select
+                                                            value={editCategory}
+                                                            onChange={e => setEditCategory(e.target.value)}
+                                                            className="flex h-7 max-w-36 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                                        >
+                                                            <option value="uncategorised">uncategorised</option>
+                                                            {categories.map(cat => (
+                                                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                            {model.category}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                            {model.format}
+                                                        </span>
+                                                        {model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && (
+                                                            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                                <button
+                                                                    onClick={() => openTexturesPicker(model.id)}
+                                                                    disabled={uploadingTexturesId === model.id + '-loading'}
+                                                                    className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                                                                >
+                                                                    {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures & .bin'}
+                                                                </button>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-muted-foreground">
+                                                    {new Date(model.createdAt).toLocaleDateString()}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        {model.thumbnailUrl ? (
+                                                            <img
+                                                                src={model.thumbnailUrl}
+                                                                alt=""
+                                                                className="size-8 rounded object-cover shrink-0 border border-border"
+                                                            />
+                                                        ) : (
+                                                            <div className="size-8 rounded bg-muted shrink-0 border border-border" />
+                                                        )}
+                                                        {generatingIds.has(model.id) ? (
+                                                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                                                <Spinner className="size-3 shrink-0" />
+                                                                Rendering…
+                                                            </span>
+                                                        ) : model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && !model.thumbnailUrl && !uploadedTexturesIds.has(model.id) ? (
+                                                            <button
+                                                                onClick={() => openTexturesPicker(model.id)}
+                                                                disabled={uploadingTexturesId === model.id + '-loading'}
+                                                                className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors disabled:opacity-50"
+                                                            >
+                                                                {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Upload textures & .bin'}
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => queueThumbnail(model)}
+                                                                className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors"
+                                                            >
+                                                                {model.thumbnailUrl ? 'Regenerate' : 'Render'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-3">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {editingId === model.id ? (
+                                                            <>
+                                                                <Button onClick={() => saveEdit(model.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                                <Button onClick={() => setEditingId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Button onClick={() => startEdit(model)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
+                                                                <Button onClick={() => setDeleteTargetId(model.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Danger zone */}
+                    <div className="rounded-lg border border-destructive/30 bg-card text-card-foreground shadow-sm">
+                        <div className="flex items-center justify-between p-6">
+                            <div className="flex flex-col gap-1">
+                                <h2 className="text-base font-semibold leading-none tracking-tight text-destructive">Danger zone</h2>
+                                <p className="text-sm text-muted-foreground">Permanently delete all models, uploads, and thumbnails.</p>
+                            </div>
+                            <Button variant="destructive" size="sm" onClick={() => setResetConfirm(true)}>
+                                Reset library
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Videos tab ───────────────────────────────────── */}
+            {activeTab === 'videos' && (
+                <div className="flex flex-col gap-8">
+
+                    {/* Video categories card */}
+                    <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                        <div className="flex flex-col gap-1 p-6 border-b border-border">
+                            <h2 className="text-base font-semibold leading-none tracking-tight">Categories</h2>
+                            <p className="text-sm text-muted-foreground">Manage categories for organising your videos.</p>
+                        </div>
+                        <div className="p-6 flex flex-col gap-4">
+                            <form onSubmit={handleCreateVideoCategory} className="flex gap-2">
+                                <input
+                                    value={newVideoCategoryName}
+                                    onChange={e => setNewVideoCategoryName(e.target.value)}
+                                    type="text"
+                                    placeholder="New category name"
+                                    className={`${inputCls} max-w-xs`}
+                                />
+                                <Button type="submit" size="sm">Add</Button>
+                            </form>
+                            {videoCategoryError && <p className="text-sm text-destructive">{videoCategoryError}</p>}
+
+                            {videoCategories.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No categories yet. Add one above.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2">
+                                    {videoCategories.map(cat => (
+                                        <div key={cat.id} className="flex items-center gap-2">
+                                            {editingVideoCategoryId === cat.id ? (
+                                                <>
+                                                    <input
+                                                        value={editVideoCategoryName}
+                                                        onChange={e => setEditVideoCategoryName(e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') saveEditVideoCategory(cat.id)
+                                                            if (e.key === 'Escape') setEditingVideoCategoryId(null)
+                                                        }}
+                                                        autoFocus
+                                                        className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                    />
+                                                    <Button onClick={() => saveEditVideoCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                    <Button onClick={() => setEditingVideoCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
+                                                        {cat.name}
+                                                    </span>
+                                                    <Button onClick={() => startEditVideoCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
+                                                    <Button onClick={() => setDeleteVideoCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Videos table card */}
+                    <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                        <div className="flex items-center justify-between p-6 border-b border-border">
+                            <div className="flex flex-col gap-1">
+                                <h2 className="text-base font-semibold leading-none tracking-tight">Videos</h2>
+                                <p className="text-sm text-muted-foreground">{videos.length} {videos.length === 1 ? 'video' : 'videos'} total</p>
+                            </div>
+                            <Button size="sm" onClick={openVideoModal}>Add video</Button>
+                        </div>
+
+                        {videos.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
+                                <span>No videos yet.</span>
+                                <Button size="sm" variant="outline" onClick={openVideoModal}>Add your first video</Button>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-border bg-muted/50">
+                                            <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Source</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">URL / Path</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
+                                            <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {videos.map(video => (
+                                            <tr key={video.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                                                <td className="px-6 py-3">
+                                                    {editingVideoId === video.id ? (
+                                                        <input
+                                                            value={editVideoName}
+                                                            onChange={e => setEditVideoName(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') saveEditVideo(video.id)
+                                                                if (e.key === 'Escape') setEditingVideoId(null)
+                                                            }}
+                                                            autoFocus
+                                                            className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium">{video.name}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    {editingVideoId === video.id ? (
+                                                        <select
+                                                            value={editVideoCategory}
+                                                            onChange={e => setEditVideoCategory(e.target.value)}
+                                                            className="flex h-7 max-w-36 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                                        >
+                                                            <option value="uncategorised">uncategorised</option>
+                                                            {videoCategories.map(cat => (
+                                                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                            {video.category}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                        {SOURCE_TYPE_LABELS[video.sourceType]}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-muted-foreground max-w-48">
+                                                    <span className="truncate block text-xs" title={video.sourceUrl}>
+                                                        {video.sourceUrl.length > 40 ? video.sourceUrl.slice(0, 40) + '…' : video.sourceUrl}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-muted-foreground">
+                                                    {new Date(video.createdAt).toLocaleDateString()}
+                                                </td>
+                                                <td className="px-6 py-3">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {editingVideoId === video.id ? (
+                                                            <>
+                                                                <Button onClick={() => saveEditVideo(video.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                                <Button onClick={() => setEditingVideoId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Button onClick={() => startEditVideo(video)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
+                                                                <Button onClick={() => setDeleteVideoTargetId(video.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         )}
                     </div>
                 </div>
-
-                {/* Models table card */}
-                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                    <div className="flex items-center justify-between p-6 border-b border-border">
-                        <div className="flex flex-col gap-1">
-                            <h2 className="text-base font-semibold leading-none tracking-tight">Models</h2>
-                            <p className="text-sm text-muted-foreground">{models.length} {models.length === 1 ? 'model' : 'models'} total</p>
-                        </div>
-                        <Button size="sm" onClick={openUploadModal}>Upload model</Button>
-                    </div>
-
-                    {models.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
-                            <span>No models yet.</span>
-                            <Button size="sm" variant="outline" onClick={openUploadModal}>Upload your first model</Button>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b border-border bg-muted/50">
-                                        <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
-                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
-                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Format</th>
-                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
-                                        <th className="h-10 px-4 text-left font-medium text-muted-foreground">Thumbnail</th>
-                                        <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {models.map(model => (
-                                        <tr key={model.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                                            <td className="px-6 py-3">
-                                                {editingId === model.id ? (
-                                                    <input
-                                                        value={editName}
-                                                        onChange={e => setEditName(e.target.value)}
-                                                        onKeyDown={e => {
-                                                            if (e.key === 'Enter') saveEdit(model.id)
-                                                            if (e.key === 'Escape') setEditingId(null)
-                                                        }}
-                                                        autoFocus
-                                                        className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                                    />
-                                                ) : (
-                                                    <span className="font-medium">{model.name}</span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                {editingId === model.id ? (
-                                                    <select
-                                                        value={editCategory}
-                                                        onChange={e => setEditCategory(e.target.value)}
-                                                        className="flex h-7 max-w-36 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-                                                    >
-                                                        <option value="uncategorised">uncategorised</option>
-                                                        {categories.map(cat => (
-                                                            <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                                        ))}
-                                                    </select>
-                                                ) : (
-                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                        {model.category}
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <div className="flex flex-col gap-1">
-                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                        {model.format}
-                                                    </span>
-                                                    {model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && (
-                                                        <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                                            <button
-                                                                onClick={() => openTexturesPicker(model.id)}
-                                                                disabled={uploadingTexturesId === model.id + '-loading'}
-                                                                className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
-                                                            >
-                                                                {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Textures & .bin'}
-                                                            </button>
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3 text-muted-foreground">
-                                                {new Date(model.createdAt).toLocaleDateString()}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <div className="flex items-center gap-2">
-                                                    {model.thumbnailUrl ? (
-                                                        <img
-                                                            src={model.thumbnailUrl}
-                                                            alt=""
-                                                            className="size-8 rounded object-cover shrink-0 border border-border"
-                                                        />
-                                                    ) : (
-                                                        <div className="size-8 rounded bg-muted shrink-0 border border-border" />
-                                                    )}
-                                                    {generatingIds.has(model.id) ? (
-                                                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                                            <Spinner className="size-3 shrink-0" />
-                                                            Rendering…
-                                                        </span>
-                                                    ) : model.format === '.gltf' && model.fileUrl.split('/').length >= 5 && !model.thumbnailUrl && !uploadedTexturesIds.has(model.id) ? (
-                                                        <button
-                                                            onClick={() => openTexturesPicker(model.id)}
-                                                            disabled={uploadingTexturesId === model.id + '-loading'}
-                                                            className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors disabled:opacity-50"
-                                                        >
-                                                            {uploadingTexturesId === model.id + '-loading' ? 'Uploading…' : 'Upload textures & .bin'}
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => queueThumbnail(model)}
-                                                            className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors"
-                                                        >
-                                                            {model.thumbnailUrl ? 'Regenerate' : 'Render'}
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-3">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    {editingId === model.id ? (
-                                                        <>
-                                                            <Button onClick={() => saveEdit(model.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
-                                                            <Button onClick={() => setEditingId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Button onClick={() => startEdit(model)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
-                                                            <Button onClick={() => setDeleteTargetId(model.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-
-                {/* Danger zone */}
-                <div className="rounded-lg border border-destructive/30 bg-card text-card-foreground shadow-sm">
-                    <div className="flex items-center justify-between p-6">
-                        <div className="flex flex-col gap-1">
-                            <h2 className="text-base font-semibold leading-none tracking-tight text-destructive">Danger zone</h2>
-                            <p className="text-sm text-muted-foreground">Permanently delete all models, uploads, and thumbnails.</p>
-                        </div>
-                        <Button variant="destructive" size="sm" onClick={() => setResetConfirm(true)}>
-                            Reset library
-                        </Button>
-                    </div>
-                </div>
-            </div>
+            )}
 
             <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
 
@@ -795,6 +1354,56 @@ export default function AdminClient({
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={confirmDeleteCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete video dialog */}
+            <AlertDialog open={!!deleteVideoTargetId} onOpenChange={(open) => { if (!open) setDeleteVideoTargetId(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deleteVideoTargetId && (() => {
+                                const target = videos.find(v => v.id === deleteVideoTargetId)!
+                                return <>
+                                    This permanently deletes{' '}
+                                    <span className="font-medium text-foreground">{target.name}</span>
+                                    {target.sourceType === 'upload' && ', including the uploaded file'}.
+                                    {' '}This action cannot be undone.
+                                </>
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeleteVideo} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete video category dialog */}
+            <AlertDialog open={!!deleteVideoCategoryTargetId} onOpenChange={(open) => { if (!open) setDeleteVideoCategoryTargetId(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete category?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deleteVideoCategoryTargetId && (() => {
+                                const target = videoCategories.find(c => c.id === deleteVideoCategoryTargetId)!
+                                const affected = videos.filter(v => v.category === target.name).length
+                                return <>
+                                    This will delete{' '}
+                                    <span className="font-medium text-foreground">{target.name}</span>.
+                                    {affected > 0 && (
+                                        <> {affected} {affected === 1 ? 'video' : 'videos'} will be set to uncategorised.</>
+                                    )}
+                                </>
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeleteVideoCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

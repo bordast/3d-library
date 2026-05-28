@@ -1,0 +1,19 @@
+{
+  "categories": [
+    {
+      "id": "new",
+      "name": "new"
+    }
+  ],
+  "videos": [
+    {
+      "id": "name",
+      "name": "Name",
+      "category": "new",
+      "sourceType": "youtube",
+      "sourceUrl": "https://www.youtube.com/watch?v=VqvqLIYSvIw",
+      "thumbnailUrl": "https://img.youtube.com/vi/VqvqLIYSvIw/hqdefault.jpg",
+      "createdAt": "2026-05-28T07:48:54.307Z"
+    }
+  ]
+}
