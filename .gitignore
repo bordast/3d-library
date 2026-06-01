@@ -14,6 +14,9 @@
 # generated thumbnails
 /public/thumbnails/
 
+# pdfjs worker (copied from node_modules by postinstall)
+/public/pdf.worker.min.mjs
+
 # database
 *.db
 *.db-shm

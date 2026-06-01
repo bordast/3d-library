@@ -1,0 +1,42 @@
+{
+  "categories": [
+    {
+      "id": "asd",
+      "name": "asd"
+    }
+  ],
+  "pdfs": [
+    {
+      "id": "asd",
+      "name": "asd",
+      "category": "asd",
+      "fileUrl": "/uploads/pdfs/1780347069443-martonacel_brand_szinek.pdf",
+      "createdAt": "2026-06-01T20:51:09.450Z",
+      "thumbnailUrl": "/thumbnails/pdfs/asd.webp"
+    },
+    {
+      "id": "sdf",
+      "name": "sdf",
+      "category": "asd",
+      "fileUrl": "/uploads/pdfs/1780347699339-elhajlitott_elem_rajz_nyomtatvany_osszes.pdf",
+      "createdAt": "2026-06-01T21:01:39.342Z",
+      "thumbnailUrl": "/thumbnails/pdfs/sdf.webp"
+    },
+    {
+      "id": "toyota",
+      "name": "toyota",
+      "category": "uncategorised",
+      "fileUrl": "/uploads/pdfs/1780347819598-arlista_uj_proace_city.pdf",
+      "createdAt": "2026-06-01T21:03:39.614Z",
+      "thumbnailUrl": "/thumbnails/pdfs/toyota.webp"
+    },
+    {
+      "id": "fgh",
+      "name": "fgh",
+      "category": "uncategorised",
+      "fileUrl": "/uploads/pdfs/1780348070609-bordas_tamas_media_design_ba2_2025_osz_prezentacio_02.pdf",
+      "createdAt": "2026-06-01T21:07:50.688Z",
+      "thumbnailUrl": "/thumbnails/pdfs/fgh.webp"
+    }
+  ]
+}

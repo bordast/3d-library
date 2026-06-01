@@ -6,6 +6,7 @@ export const SITE = {
 export const NAV_LINKS = [
     { href: '/models', label: 'Models' },
     { href: '/videos', label: 'Videos' },
+    { href: '/pdfs',   label: 'PDFs'   },
     { href: '/admin',  label: 'Admin'  },
 ]
 
@@ -31,6 +32,10 @@ export const UPLOAD = {
     video: {
         maxBytes: 500 * 1024 * 1024,
         accept: ['.mp4', '.webm'],
+    },
+    pdf: {
+        maxBytes: 100 * 1024 * 1024,
+        accept: ['.pdf'],
     },
 }
 
