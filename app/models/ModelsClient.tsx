@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import ModelCard from '@/components/ModelCard'
 import type { Model } from '@/lib/db'
+import { GRID, SEARCH } from '@/lib/config'
 
 export default function ModelsClient({ models }: { models: Model[] }) {
     const [nameQuery, setNameQuery] = useState('')
@@ -37,7 +38,7 @@ export default function ModelsClient({ models }: { models: Model[] }) {
                 result.push(m.name)
             }
         }
-        return result.slice(0, 6)
+        return result.slice(0, SEARCH.maxSuggestions)
     }, [models, nq])
 
     const filtered = useMemo(() => models.filter(m => {
@@ -203,7 +204,7 @@ export default function ModelsClient({ models }: { models: Model[] }) {
                     </button>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className={GRID.cards}>
                     {filtered.map(model => (
                         <ModelCard key={model.id} model={model} />
                     ))}

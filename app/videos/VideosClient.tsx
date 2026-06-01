@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import VideoCard from '@/components/VideoCard'
 import type { Video } from '@/lib/videodb'
+import { GRID, SEARCH } from '@/lib/config'
 
 function GridIcon({ active }: { active: boolean }) {
     return (
@@ -62,7 +63,7 @@ export default function VideosClient({ videos }: { videos: Video[] }) {
                 result.push(v.name)
             }
         }
-        return result.slice(0, 6)
+        return result.slice(0, SEARCH.maxSuggestions)
     }, [videos, nq])
 
     const filtered = useMemo(() => videos.filter(v => {
@@ -123,7 +124,7 @@ export default function VideosClient({ videos }: { videos: Video[] }) {
     const catLabel = selectedCategory || 'All categories'
 
     const videoGrid = (items: Video[]) => (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className={GRID.cards}>
             {items.map(video => (
                 <VideoCard key={video.id} video={video} />
             ))}

@@ -70,6 +70,7 @@ components/
   ThemeToggle.tsx     # dark/light toggle (reads/writes .dark class on <html>)
   NavLinks.tsx        # active-aware nav links (models / videos / admin) ('use client')
 lib/
+  config.ts           # site-wide constants: SITE, NAV_LINKS, LAYOUT, GRID, CARD, UPLOAD, SEARCH
   db.ts               # CRUD over data/models.json; Model and Category types exported here
   videodb.ts          # CRUD over data/videos.json; Video and VideoCategory types exported here
 data/
@@ -200,8 +201,24 @@ Video and model categories are **completely independent** — `VideoCategory` li
 ### Styling
 Design tokens are CSS custom properties defined in `globals.css` (shadcn/ui-style palette). Tailwind v4 picks them up via `@theme inline`. Use semantic tokens (`bg-background`, `text-muted-foreground`, `border-border`, etc.) — never raw hex or hardcoded colors. Dark mode uses the `.dark` class on `<html>`.
 
+### Site-wide config
+`lib/config.ts` is the single source of truth for all values that would otherwise be duplicated across files. Import from it rather than repeating literals.
+
+| Export | What it controls |
+|--------|-----------------|
+| `SITE` | Site name and description (used in `<Metadata>` and the header logo) |
+| `NAV_LINKS` | Navigation items consumed by `NavLinks.tsx` |
+| `LAYOUT` | Shared container classes (`containerCls`, `headerHeight`, `mainPy`) used in `layout.tsx` |
+| `GRID` | Responsive card grid class string used in `ModelsClient` and `VideosClient` |
+| `CARD` | Card thumbnail height (`thumbnailClass`) used in `ModelCard` and `VideoCard` |
+| `UPLOAD.model` | Model `maxBytes` (200 MB) and `accept` array (`['.glb', '.gltf']`) — used by the API route and `AdminClient` |
+| `UPLOAD.video` | Video `maxBytes` (500 MB) and `accept` array (`['.mp4', '.webm']`) — used by the API route and `AdminClient` |
+| `SEARCH` | `maxSuggestions` cap for the name-search autocomplete dropdown |
+
+If you add a new constant that is used in more than one file, put it here.
+
 ### Supported file formats
-`.glb` and `.gltf` only. Validation is enforced in both the API route (`app/api/models/route.ts`) and the admin upload form.
+`.glb` and `.gltf` for models; `.mp4` and `.webm` for videos. The canonical lists live in `UPLOAD.model.accept` and `UPLOAD.video.accept` in `lib/config.ts` — both the API routes and the admin client import from there, so changing a format in one place updates all validation and file-input `accept` attributes automatically.
 
 ### LAN development
 `next.config.ts` auto-detects local network IPs via `os.networkInterfaces()` and adds them to `allowedDevOrigins`, so the dev server is reachable on the local network (e.g. from a phone) without CORS errors.

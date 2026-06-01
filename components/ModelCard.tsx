@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ViewTransition } from 'react'
 import type { Model } from '@/lib/db'
+import { CARD } from '@/lib/config'
 
 const PlaceholderIcon = ({ format }: { format: string }) => (
     <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground/40">
@@ -20,7 +21,7 @@ export default function ModelCard({ model }: { model: Model }) {
     return (
         <Link href={`/models/${model.id}`} transitionTypes={['nav-forward']} className="group block rounded-lg border border-border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md">
             <ViewTransition name={`model-preview-${model.id}`} share="morph">
-                <div className="h-40 rounded-t-lg overflow-hidden bg-muted">
+                <div className={`${CARD.thumbnailClass} rounded-t-lg overflow-hidden bg-muted`}>
                     {model.thumbnailUrl && !imgFailed ? (
                         <img
                             src={model.thumbnailUrl}

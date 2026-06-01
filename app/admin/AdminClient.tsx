@@ -179,6 +179,7 @@ function VideoThumbnailCapture({ video, onDone, onCancel }: {
 }
 
 import { Spinner } from '@/components/ui/spinner'
+import { UPLOAD } from '@/lib/config'
 import type { Model, Category } from '@/lib/db'
 import type { Video, VideoCategory } from '@/lib/videodb'
 import {
@@ -246,8 +247,6 @@ export default function AdminClient({
     const nameRef = useRef<HTMLInputElement>(null)
     const categorySelectRef = useRef<HTMLSelectElement>(null)
     const fileRef = useRef<HTMLInputElement>(null)
-
-    const MAX_FILE_SIZE = 200 * 1024 * 1024
 
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editName, setEditName] = useState('')
@@ -327,12 +326,12 @@ export default function AdminClient({
         const file = fileRef.current?.files?.[0]
         if (!name || !file) return
 
-        if (file.size > MAX_FILE_SIZE) {
+        if (file.size > UPLOAD.model.maxBytes) {
             setUploadError('File exceeds 200 MB limit.')
             return
         }
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-        if (!['.glb', '.gltf'].includes(ext)) {
+        if (!UPLOAD.model.accept.includes(ext)) {
             setUploadError('Only .glb and .gltf files are supported.')
             return
         }
@@ -566,13 +565,12 @@ export default function AdminClient({
         const file = videoFileRef.current?.files?.[0]
         if (!name || !file) return
 
-        const MAX_VIDEO_SIZE = 500 * 1024 * 1024
-        if (file.size > MAX_VIDEO_SIZE) {
+        if (file.size > UPLOAD.video.maxBytes) {
             setVideoUploadError('File exceeds 500 MB limit.')
             return
         }
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-        if (!['.mp4', '.webm'].includes(ext)) {
+        if (!UPLOAD.video.accept.includes(ext)) {
             setVideoUploadError('Only .mp4 and .webm files are allowed.')
             return
         }
@@ -814,7 +812,7 @@ export default function AdminClient({
                                         <input
                                             ref={fileRef}
                                             type="file"
-                                            accept=".glb,.gltf"
+                                            accept={UPLOAD.model.accept.join(',')}
                                             required
                                             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                                         />
@@ -1025,7 +1023,7 @@ export default function AdminClient({
                                         <input
                                             ref={videoFileRef}
                                             type="file"
-                                            accept=".mp4,.webm"
+                                            accept={UPLOAD.video.accept.join(',')}
                                             required
                                             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                                         />
