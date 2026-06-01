@@ -2,19 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-
-const links = [
-    { href: '/models', label: 'Models' },
-    { href: '/videos', label: 'Videos' },
-    { href: '/admin', label: 'Admin' },
-]
+import { NAV_LINKS } from '@/lib/config'
 
 export default function NavLinks() {
     const pathname = usePathname()
 
     return (
         <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-            {links.map(({ href, label }) => {
+            {NAV_LINKS.map(({ href, label }) => {
                 const active = pathname === href || pathname.startsWith(href + '/')
                 return (
                     <Link

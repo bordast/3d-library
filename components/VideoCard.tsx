@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import type { Video } from '@/lib/videodb'
+import { CARD } from '@/lib/config'
 
 const SOURCE_LABELS: Record<Video['sourceType'], string> = {
   youtube: 'YouTube',
@@ -30,7 +31,7 @@ export default function VideoCard({ video }: { video: Video }) {
       href={`/videos/${video.id}`}
       className="group block rounded-lg border border-border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md"
     >
-      <div className="h-40 rounded-t-lg overflow-hidden bg-muted">
+      <div className={`${CARD.thumbnailClass} rounded-t-lg overflow-hidden bg-muted`}>
         {video.thumbnailUrl && !imgFailed ? (
           <img
             src={video.thumbnailUrl}

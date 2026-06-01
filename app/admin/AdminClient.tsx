@@ -7,6 +7,70 @@ const ModelCanvas = dynamic(() => import('@/components/ModelCanvas'), { ssr: fal
 
 import type { Model as ModelType } from '@/lib/db'
 
+// ─── PDF thumbnail capture ─────────────────────────────────────────────────
+// Loads a PDF in a hidden off-screen element, renders page 1 to a 256×256
+// canvas, captures as WebP, and POSTs to /api/pdfs/[id]/thumbnail.
+
+function PdfThumbnailCapture({ pdf, onDone }: {
+    pdf: PdfType
+    onDone: (id: string, url: string | null) => void
+}) {
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+
+    useEffect(() => {
+        let cancelled = false
+
+        async function capture() {
+            try {
+                const pdfjsLib = await import('pdfjs-dist')
+                pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+
+                const doc = await pdfjsLib.getDocument({ url: pdf.fileUrl }).promise
+                if (cancelled) return
+
+                const page = await doc.getPage(1)
+                if (cancelled) return
+
+                const canvas = canvasRef.current!
+                const ctx = canvas.getContext('2d')!
+                const unscaled = page.getViewport({ scale: 1 })
+                const scale = Math.min(256 / unscaled.width, 256 / unscaled.height)
+                const viewport = page.getViewport({ scale })
+                canvas.width = viewport.width
+                canvas.height = viewport.height
+                await page.render({ canvas: null, canvasContext: ctx, viewport }).promise
+                if (cancelled) return
+
+                const dataUrl = canvas.toDataURL('image/webp', 0.85)
+                const res = await fetch(`/api/pdfs/${pdf.id}/thumbnail`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dataUrl }),
+                })
+                if (!cancelled) {
+                    if (res.ok) {
+                        const data = await res.json()
+                        onDone(pdf.id, data.thumbnailUrl)
+                    } else {
+                        onDone(pdf.id, null)
+                    }
+                }
+            } catch {
+                if (!cancelled) onDone(pdf.id, null)
+            }
+        }
+
+        capture()
+        return () => { cancelled = true }
+    }, [pdf.id, pdf.fileUrl, onDone])
+
+    return (
+        <div aria-hidden style={{ position: 'fixed', left: '-9999px', top: 0, pointerEvents: 'none' }}>
+            <canvas ref={canvasRef} />
+        </div>
+    )
+}
+
 function ThumbnailGenerator({ models, onDone }: {
     models: ModelType[]
     onDone: (id: string, url: string | null) => void
@@ -179,8 +243,10 @@ function VideoThumbnailCapture({ video, onDone, onCancel }: {
 }
 
 import { Spinner } from '@/components/ui/spinner'
+import { UPLOAD } from '@/lib/config'
 import type { Model, Category } from '@/lib/db'
 import type { Video, VideoCategory } from '@/lib/videodb'
+import type { Pdf as PdfType, PdfCategory } from '@/lib/pdfdb'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -198,14 +264,18 @@ export default function AdminClient({
     initialCategories,
     initialVideos,
     initialVideoCategories,
+    initialPdfs,
+    initialPdfCategories,
 }: {
     initialModels: Model[]
     initialCategories: Category[]
     initialVideos: Video[]
     initialVideoCategories: VideoCategory[]
+    initialPdfs: PdfType[]
+    initialPdfCategories: PdfCategory[]
 }) {
     // ─── Tab ───────────────────────────────────────────────
-    const [activeTab, setActiveTab] = useState<'models' | 'videos'>('models')
+    const [activeTab, setActiveTab] = useState<'models' | 'videos' | 'pdfs'>('models')
 
     // ─── Models state ──────────────────────────────────────
     const [models, setModels] = useState<Model[]>(initialModels)
@@ -246,8 +316,6 @@ export default function AdminClient({
     const nameRef = useRef<HTMLInputElement>(null)
     const categorySelectRef = useRef<HTMLSelectElement>(null)
     const fileRef = useRef<HTMLInputElement>(null)
-
-    const MAX_FILE_SIZE = 200 * 1024 * 1024
 
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editName, setEditName] = useState('')
@@ -298,6 +366,37 @@ export default function AdminClient({
         setCapturingVideo(null)
     }, [])
 
+    // ─── PDFs state ────────────────────────────────────────
+    const [pdfs, setPdfs] = useState<PdfType[]>(initialPdfs)
+    const [pdfCategories, setPdfCategories] = useState<PdfCategory[]>(initialPdfCategories)
+
+    const [pdfUploadOpen, setPdfUploadOpen] = useState(false)
+    const [pdfUploading, setPdfUploading] = useState(false)
+    const [pdfUploadProgress, setPdfUploadProgress] = useState<number | null>(null)
+    const [pdfUploadError, setPdfUploadError] = useState<string | null>(null)
+
+    const [editingPdfId, setEditingPdfId] = useState<string | null>(null)
+    const [editPdfName, setEditPdfName] = useState('')
+    const [editPdfCategory, setEditPdfCategory] = useState('')
+    const [deletePdfTargetId, setDeletePdfTargetId] = useState<string | null>(null)
+
+    const [newPdfCategoryName, setNewPdfCategoryName] = useState('')
+    const [editingPdfCategoryId, setEditingPdfCategoryId] = useState<string | null>(null)
+    const [editPdfCategoryName, setEditPdfCategoryName] = useState('')
+    const [deletePdfCategoryTargetId, setDeletePdfCategoryTargetId] = useState<string | null>(null)
+    const [pdfCategoryError, setPdfCategoryError] = useState<string | null>(null)
+
+    const [capturingPdf, setCapturingPdf] = useState<PdfType | null>(null)
+
+    const pdfNameRef = useRef<HTMLInputElement>(null)
+    const pdfCategorySelectRef = useRef<HTMLSelectElement>(null)
+    const pdfFileRef = useRef<HTMLInputElement>(null)
+
+    const handlePdfCaptureDone = useCallback((id: string, url: string | null) => {
+        if (url) setPdfs(prev => prev.map(p => p.id === id ? { ...p, thumbnailUrl: url } : p))
+        setCapturingPdf(null)
+    }, [])
+
     // ─── Model handlers ────────────────────────────────────
 
     function openUploadModal() {
@@ -327,12 +426,12 @@ export default function AdminClient({
         const file = fileRef.current?.files?.[0]
         if (!name || !file) return
 
-        if (file.size > MAX_FILE_SIZE) {
+        if (file.size > UPLOAD.model.maxBytes) {
             setUploadError('File exceeds 200 MB limit.')
             return
         }
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-        if (!['.glb', '.gltf'].includes(ext)) {
+        if (!UPLOAD.model.accept.includes(ext)) {
             setUploadError('Only .glb and .gltf files are supported.')
             return
         }
@@ -566,13 +665,12 @@ export default function AdminClient({
         const file = videoFileRef.current?.files?.[0]
         if (!name || !file) return
 
-        const MAX_VIDEO_SIZE = 500 * 1024 * 1024
-        if (file.size > MAX_VIDEO_SIZE) {
+        if (file.size > UPLOAD.video.maxBytes) {
             setVideoUploadError('File exceeds 500 MB limit.')
             return
         }
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
-        if (!['.mp4', '.webm'].includes(ext)) {
+        if (!UPLOAD.video.accept.includes(ext)) {
             setVideoUploadError('Only .mp4 and .webm files are allowed.')
             return
         }
@@ -711,6 +809,169 @@ export default function AdminClient({
         }
     }
 
+    // ─── PDF handlers ──────────────────────────────────────
+
+    function openPdfUploadModal() {
+        setPdfUploadOpen(true)
+        setPdfUploadError(null)
+        setPdfUploading(false)
+        setPdfUploadProgress(null)
+    }
+
+    function closePdfUploadModal() {
+        setPdfUploadOpen(false)
+    }
+
+    function handlePdfUpload(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault()
+        const name = pdfNameRef.current?.value.trim()
+        const file = pdfFileRef.current?.files?.[0]
+        if (!name || !file) return
+
+        if (file.size > UPLOAD.pdf.maxBytes) {
+            setPdfUploadError('File exceeds 100 MB limit.')
+            return
+        }
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+        if (!UPLOAD.pdf.accept.includes(ext)) {
+            setPdfUploadError('Only .pdf files are supported.')
+            return
+        }
+
+        const body = new FormData()
+        body.append('name', name)
+        const cat = pdfCategorySelectRef.current?.value
+        if (cat) body.append('category', cat)
+        body.append('file', file)
+
+        setPdfUploading(true)
+        setPdfUploadProgress(0)
+        setPdfUploadError(null)
+
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', '/api/pdfs')
+        xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) setPdfUploadProgress(Math.round((ev.loaded / ev.total) * 100))
+        }
+        xhr.onload = () => {
+            setPdfUploading(false)
+            setPdfUploadProgress(null)
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const pdf: PdfType = JSON.parse(xhr.responseText)
+                    setPdfs(prev => [pdf, ...prev])
+                    closePdfUploadModal()
+                } catch {
+                    setPdfUploadError('Unexpected server response.')
+                }
+            } else {
+                try {
+                    const data = JSON.parse(xhr.responseText)
+                    setPdfUploadError(data.error ?? `Upload failed (${xhr.status})`)
+                } catch {
+                    setPdfUploadError(`Upload failed (${xhr.status})`)
+                }
+            }
+        }
+        xhr.onerror = () => {
+            setPdfUploading(false)
+            setPdfUploadProgress(null)
+            setPdfUploadError('Network error — upload could not be completed.')
+        }
+        xhr.send(body)
+    }
+
+    function startEditPdf(pdf: PdfType) {
+        setEditingPdfId(pdf.id)
+        setEditPdfName(pdf.name)
+        setEditPdfCategory(pdf.category)
+    }
+
+    async function saveEditPdf(id: string) {
+        const trimmedName = editPdfName.trim()
+        if (!trimmedName) return
+        const res = await fetch(`/api/pdfs/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: trimmedName, category: editPdfCategory }),
+        })
+        if (res.ok) {
+            const updated: PdfType = await res.json()
+            setPdfs(prev => prev.map(p => p.id === id ? updated : p))
+        }
+        setEditingPdfId(null)
+    }
+
+    async function confirmDeletePdf() {
+        if (!deletePdfTargetId) return
+        const id = deletePdfTargetId
+        setDeletePdfTargetId(null)
+        const res = await fetch(`/api/pdfs/${id}`, { method: 'DELETE' })
+        if (res.ok) setPdfs(prev => prev.filter(p => p.id !== id))
+    }
+
+    async function handleCreatePdfCategory(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault()
+        const name = newPdfCategoryName.trim()
+        if (!name) return
+        setPdfCategoryError(null)
+        const res = await fetch('/api/pdfs/categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        })
+        if (res.ok) {
+            const cat: PdfCategory = await res.json()
+            setPdfCategories(prev => [...prev, cat])
+            setNewPdfCategoryName('')
+        } else {
+            const data = await res.json().catch(() => ({}))
+            setPdfCategoryError(data.error ?? 'Failed to create category')
+        }
+    }
+
+    function startEditPdfCategory(cat: PdfCategory) {
+        setEditingPdfCategoryId(cat.id)
+        setEditPdfCategoryName(cat.name)
+    }
+
+    async function saveEditPdfCategory(id: string) {
+        const name = editPdfCategoryName.trim()
+        if (!name) return
+        const res = await fetch(`/api/pdfs/categories/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        })
+        if (res.ok) {
+            const updated: PdfCategory = await res.json()
+            const old = pdfCategories.find(c => c.id === id)
+            setPdfCategories(prev => prev.map(c => c.id === id ? updated : c))
+            if (old) {
+                setPdfs(prev => prev.map(p =>
+                    p.category === old.name ? { ...p, category: updated.name } : p
+                ))
+            }
+        }
+        setEditingPdfCategoryId(null)
+    }
+
+    async function confirmDeletePdfCategory() {
+        if (!deletePdfCategoryTargetId) return
+        const id = deletePdfCategoryTargetId
+        const cat = pdfCategories.find(c => c.id === id)
+        setDeletePdfCategoryTargetId(null)
+        const res = await fetch(`/api/pdfs/categories/${id}`, { method: 'DELETE' })
+        if (res.ok) {
+            setPdfCategories(prev => prev.filter(c => c.id !== id))
+            if (cat) {
+                setPdfs(prev => prev.map(p =>
+                    p.category === cat.name ? { ...p, category: 'uncategorised' } : p
+                ))
+            }
+        }
+    }
+
     // ─── Shared styles ─────────────────────────────────────
     const inputCls = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
     const selectCls = 'flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer'
@@ -737,6 +998,12 @@ export default function AdminClient({
                     video={capturingVideo}
                     onDone={handleVideoCaptureDone}
                     onCancel={() => setCapturingVideo(null)}
+                />
+            )}
+            {capturingPdf && (
+                <PdfThumbnailCapture
+                    pdf={capturingPdf}
+                    onDone={handlePdfCaptureDone}
                 />
             )}
 
@@ -814,7 +1081,7 @@ export default function AdminClient({
                                         <input
                                             ref={fileRef}
                                             type="file"
-                                            accept=".glb,.gltf"
+                                            accept={UPLOAD.model.accept.join(',')}
                                             required
                                             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                                         />
@@ -1025,7 +1292,7 @@ export default function AdminClient({
                                         <input
                                             ref={videoFileRef}
                                             type="file"
-                                            accept=".mp4,.webm"
+                                            accept={UPLOAD.video.accept.join(',')}
                                             required
                                             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                                         />
@@ -1054,18 +1321,22 @@ export default function AdminClient({
 
             {/* ─── Tab switcher ─────────────────────────────────── */}
             <div className="flex gap-1 mb-8 border-b border-border">
-                {(['models', 'videos'] as const).map(tab => (
+                {([
+                    { key: 'models', label: 'Models' },
+                    { key: 'videos', label: 'Videos' },
+                    { key: 'pdfs',   label: 'PDFs'   },
+                ] as const).map(({ key, label }) => (
                     <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
+                        key={key}
+                        onClick={() => setActiveTab(key)}
                         className={[
                             'px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px',
-                            activeTab === tab
+                            activeTab === key
                                 ? 'border-primary text-foreground'
                                 : 'border-transparent text-muted-foreground hover:text-foreground',
                         ].join(' ')}
                     >
-                        {tab === 'models' ? 'Models' : 'Videos'}
+                        {label}
                     </button>
                 ))}
             </div>
@@ -1474,6 +1745,252 @@ export default function AdminClient({
                 </div>
             )}
 
+            {/* ─── PDFs tab ─────────────────────────────────────── */}
+            {activeTab === 'pdfs' && (
+                <div className="flex flex-col gap-8">
+
+                    {/* PDF categories card */}
+                    <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                        <div className="flex flex-col gap-1 p-6 border-b border-border">
+                            <h2 className="text-base font-semibold leading-none tracking-tight">Categories</h2>
+                            <p className="text-sm text-muted-foreground">Manage categories for organising your PDFs.</p>
+                        </div>
+                        <div className="p-6 flex flex-col gap-4">
+                            <form onSubmit={handleCreatePdfCategory} className="flex gap-2">
+                                <input
+                                    value={newPdfCategoryName}
+                                    onChange={e => setNewPdfCategoryName(e.target.value)}
+                                    type="text"
+                                    placeholder="New category name"
+                                    className={`${inputCls} max-w-xs`}
+                                />
+                                <Button type="submit" size="sm">Add</Button>
+                            </form>
+                            {pdfCategoryError && <p className="text-sm text-destructive">{pdfCategoryError}</p>}
+
+                            {pdfCategories.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No categories yet. Add one above.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2">
+                                    {pdfCategories.map(cat => (
+                                        <div key={cat.id} className="flex items-center gap-2">
+                                            {editingPdfCategoryId === cat.id ? (
+                                                <>
+                                                    <input
+                                                        value={editPdfCategoryName}
+                                                        onChange={e => setEditPdfCategoryName(e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') saveEditPdfCategory(cat.id)
+                                                            if (e.key === 'Escape') setEditingPdfCategoryId(null)
+                                                        }}
+                                                        autoFocus
+                                                        className="flex h-7 max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                    />
+                                                    <Button onClick={() => saveEditPdfCategory(cat.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                    <Button onClick={() => setEditingPdfCategoryId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground min-w-24">
+                                                        {cat.name}
+                                                    </span>
+                                                    <Button onClick={() => startEditPdfCategory(cat)} variant="outline" size="sm" className="h-7 text-xs px-3">Rename</Button>
+                                                    <Button onClick={() => setDeletePdfCategoryTargetId(cat.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* PDFs table card */}
+                    <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                        <div className="flex items-center justify-between p-6 border-b border-border">
+                            <div className="flex flex-col gap-1">
+                                <h2 className="text-base font-semibold leading-none tracking-tight">PDFs</h2>
+                                <p className="text-sm text-muted-foreground">{pdfs.length} {pdfs.length === 1 ? 'document' : 'documents'} total</p>
+                            </div>
+                            <Button size="sm" onClick={openPdfUploadModal}>Upload PDF</Button>
+                        </div>
+
+                        {pdfs.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
+                                <span>No PDFs yet.</span>
+                                <Button size="sm" variant="outline" onClick={openPdfUploadModal}>Upload your first PDF</Button>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-border bg-muted/50">
+                                            <th className="h-10 px-6 text-left font-medium text-muted-foreground">Name</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Category</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Added</th>
+                                            <th className="h-10 px-4 text-left font-medium text-muted-foreground">Thumbnail</th>
+                                            <th className="h-10 px-6 text-right font-medium text-muted-foreground">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {pdfs.map(pdf => (
+                                            <tr key={pdf.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                                                <td className="px-6 py-3">
+                                                    {editingPdfId === pdf.id ? (
+                                                        <input
+                                                            value={editPdfName}
+                                                            onChange={e => setEditPdfName(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') saveEditPdf(pdf.id)
+                                                                if (e.key === 'Escape') setEditingPdfId(null)
+                                                            }}
+                                                            autoFocus
+                                                            className="flex h-7 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium">{pdf.name}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    {editingPdfId === pdf.id ? (
+                                                        <select
+                                                            value={editPdfCategory}
+                                                            onChange={e => setEditPdfCategory(e.target.value)}
+                                                            className="flex h-7 max-w-36 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                                        >
+                                                            <option value="uncategorised">uncategorised</option>
+                                                            {pdfCategories.map(cat => (
+                                                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                                            {pdf.category}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-muted-foreground">
+                                                    {new Date(pdf.createdAt).toLocaleDateString()}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        {pdf.thumbnailUrl ? (
+                                                            <img
+                                                                src={pdf.thumbnailUrl}
+                                                                alt=""
+                                                                className="size-8 rounded object-cover shrink-0 border border-border"
+                                                            />
+                                                        ) : (
+                                                            <div className="size-8 rounded bg-muted shrink-0 border border-border" />
+                                                        )}
+                                                        {capturingPdf?.id === pdf.id ? (
+                                                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                                                <Spinner className="size-3 shrink-0" />
+                                                                Rendering…
+                                                            </span>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => setCapturingPdf(pdf)}
+                                                                disabled={capturingPdf !== null}
+                                                                className="text-xs text-muted-foreground underline underline-offset-2 hover:no-underline hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                                            >
+                                                                {pdf.thumbnailUrl ? 'Regenerate' : 'Render'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-3">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {editingPdfId === pdf.id ? (
+                                                            <>
+                                                                <Button onClick={() => saveEditPdf(pdf.id)} size="sm" className="h-7 text-xs px-3">Save</Button>
+                                                                <Button onClick={() => setEditingPdfId(null)} variant="outline" size="sm" className="h-7 text-xs px-3">Cancel</Button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Button onClick={() => startEditPdf(pdf)} variant="outline" size="sm" className="h-7 text-xs px-3">Edit</Button>
+                                                                <Button onClick={() => setDeletePdfTargetId(pdf.id)} variant="destructive" size="sm" className="h-7 text-xs px-3">Delete</Button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── PDF upload modal ────────────────────────────── */}
+            {pdfUploadOpen && (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={!pdfUploading ? closePdfUploadModal : undefined} />
+                    <div className="relative z-10 w-full sm:max-w-md sm:rounded-xl border-t sm:border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
+
+                        <div className="flex items-center justify-between px-6 pt-5 pb-0 shrink-0">
+                            <h2 className="text-base font-semibold">Upload PDF</h2>
+                            <button
+                                onClick={closePdfUploadModal}
+                                disabled={pdfUploading}
+                                className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                aria-label="Close"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4">
+                                    <path d="M18 6 6 18M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="border-t border-border mt-4" />
+
+                        <form onSubmit={handlePdfUpload} className="flex flex-col">
+                            <div className="flex flex-col gap-4 p-6">
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-sm font-medium">Name</label>
+                                    <input ref={pdfNameRef} type="text" placeholder="Document name" required className={inputCls} />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-sm font-medium">Category</label>
+                                    <select ref={pdfCategorySelectRef} className={`${selectCls} w-full`}>
+                                        <option value="">No category</option>
+                                        {pdfCategories.map(cat => (
+                                            <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-sm font-medium">
+                                        File <span className="text-muted-foreground font-normal">.pdf</span>
+                                    </label>
+                                    <input
+                                        ref={pdfFileRef}
+                                        type="file"
+                                        accept={UPLOAD.pdf.accept.join(',')}
+                                        required
+                                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm text-muted-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                    />
+                                </div>
+                                {pdfUploadError && <p className="text-sm text-destructive">{pdfUploadError}</p>}
+                            </div>
+                            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border">
+                                <Button type="button" variant="ghost" onClick={closePdfUploadModal} disabled={pdfUploading}>Cancel</Button>
+                                <Button type="submit" disabled={pdfUploading}>
+                                    {pdfUploading ? (
+                                        <>
+                                            <Spinner className="mr-2 size-3.5" />
+                                            {pdfUploadProgress !== null && pdfUploadProgress < 100 ? `Uploading… ${pdfUploadProgress}%` : 'Processing…'}
+                                        </>
+                                    ) : 'Upload'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             <input ref={texturesInputRef} type="file" accept=".webp,.png,.jpg,.jpeg,.gif,.bmp,.ktx2,.basis,.bin,.glb" multiple className="hidden" onChange={handleTexturesChosen} />
 
             {textureStatus && (
@@ -1581,6 +2098,59 @@ export default function AdminClient({
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={confirmDeleteVideoCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete PDF dialog */}
+            <AlertDialog open={!!deletePdfTargetId} onOpenChange={(open) => { if (!open) setDeletePdfTargetId(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deletePdfTargetId && (() => {
+                                const target = pdfs.find(p => p.id === deletePdfTargetId)!
+                                return <>
+                                    This permanently deletes{' '}
+                                    <span className="font-medium text-foreground">{target.name}</span>
+                                    , uploaded on{' '}
+                                    <span className="font-medium text-foreground">
+                                        {new Date(target.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                                    </span>
+                                    . This action cannot be undone.
+                                </>
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeletePdf} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete PDF category dialog */}
+            <AlertDialog open={!!deletePdfCategoryTargetId} onOpenChange={(open) => { if (!open) setDeletePdfCategoryTargetId(null) }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete category?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {deletePdfCategoryTargetId && (() => {
+                                const target = pdfCategories.find(c => c.id === deletePdfCategoryTargetId)!
+                                const affected = pdfs.filter(p => p.category === target.name).length
+                                return <>
+                                    This will delete{' '}
+                                    <span className="font-medium text-foreground">{target.name}</span>.
+                                    {affected > 0 && (
+                                        <> {affected} {affected === 1 ? 'document' : 'documents'} will be set to uncategorised.</>
+                                    )}
+                                </>
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeletePdfCategory} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # 3D Library
 
-A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gltf) with an interactive WebGL viewer, plus a video gallery for YouTube, Vimeo, and uploaded MP4/WebM files.
+A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gltf) with an interactive WebGL viewer, a video gallery for YouTube, Vimeo, and uploaded MP4/WebM files, and a PDF gallery with a 3D page-flip viewer.
 
 ## Stack
 
@@ -15,7 +15,8 @@ A Next.js 16 app for browsing, uploading, and managing 3D model files (.glb, .gl
 - **Three.js 0.184 / @react-three/fiber v9 / @react-three/drei v10** for 3D rendering
 - **Tailwind CSS v4** — configured via `@import "tailwindcss"` in [app/globals.css](app/globals.css), no `tailwind.config`
 - **TypeScript 5** — strict, path alias `@/` maps to project root
-- No database — model data lives in [data/models.json](data/models.json) via [lib/db.ts](lib/db.ts); video data lives in [data/videos.json](data/videos.json) via [lib/videodb.ts](lib/videodb.ts). Each JSON file is a standalone store — never mix them.
+- **pdfjs-dist v6** for client-side PDF-to-canvas rendering; **react-pageflip v2** for the CSS 3D book/newspaper flip animation
+- No database — model data lives in [data/models.json](data/models.json) via [lib/db.ts](lib/db.ts); video data in [data/videos.json](data/videos.json) via [lib/videodb.ts](lib/videodb.ts); PDF data in [data/pdfs.json](data/pdfs.json) via [lib/pdfdb.ts](lib/pdfdb.ts). Each JSON file is a standalone store — never mix them.
 
 ## Commands
 
@@ -25,6 +26,8 @@ npm run build    # production build
 npm run start    # serve a production build
 npm run lint     # eslint
 ```
+
+`postinstall` automatically copies `node_modules/pdfjs-dist/build/pdf.worker.min.mjs` → `public/pdf.worker.min.mjs`. Run it manually after upgrading pdfjs-dist, or just re-run `npm install`.
 
 ## Project structure
 
@@ -40,9 +43,13 @@ app/
     page.tsx          # video grid (server component)
     VideosClient.tsx  # search/filter UI + card grid ('use client')
     [id]/page.tsx     # video detail/player page (server component)
+  pdfs/
+    page.tsx          # PDF grid (server component)
+    PdfsClient.tsx    # search/filter UI + card grid ('use client')
+    [id]/page.tsx     # PDF viewer page; PdfViewer dynamically imported (ssr:false)
   admin/
-    page.tsx          # admin shell — fetches models+categories+videos+videoCategories in parallel
-    AdminClient.tsx   # Models/Videos tab switcher; model upload modal; video add modal; CRUD for both ('use client')
+    page.tsx          # admin shell — fetches models+categories+videos+videoCategories+pdfs+pdfCategories in parallel
+    AdminClient.tsx   # Models/Videos/PDFs tab switcher; upload modals; CRUD for all three ('use client')
   api/models/
     route.ts          # GET list, POST upload (multipart; .glb and .gltf only)
     [id]/route.ts     # PUT rename, DELETE (removes file/folder)
@@ -54,6 +61,13 @@ app/
     categories/
       route.ts        # GET list, POST create
       [id]/route.ts   # PUT rename (cascades to videos), DELETE (resets videos to uncategorised)
+  api/pdfs/
+    route.ts          # GET list, POST upload (multipart; .pdf only, 100 MB limit)
+    [id]/route.ts     # PUT rename/recategorise, DELETE (removes file + thumbnail)
+    [id]/thumbnail/   # POST — save a base64 WebP thumbnail, update pdf record
+    categories/
+      route.ts        # GET list, POST create
+      [id]/route.ts   # PUT rename (cascades to pdfs), DELETE (resets pdfs to uncategorised)
   api/texture/
     [...path]/route.ts  # GET — serve textures with webp-first fallback
   api/categories/
@@ -67,20 +81,30 @@ components/
   VideoCard.tsx       # card with thumbnail or play-icon placeholder + source-type badge, links to /videos/[id]
   VideoPlayer.tsx     # renders YouTube iframe / Vimeo iframe / HTML5 <video> based on sourceType ('use client')
   Viewer.tsx          # full viewer shell: solid/wireframe/UV/PBR-debug modes, animated camera presets, material color editor
+  PdfCard.tsx         # card with thumbnail or document-icon placeholder, links to /pdfs/[id]
+  PdfViewerClient.tsx # 'use client' wrapper that does dynamic(PdfViewer, {ssr:false}); imported by the server page
+  PdfViewer.tsx       # CSS 3D page-flip viewer (react-pageflip + pdfjs-dist); must only be imported via PdfViewerClient
   ThemeToggle.tsx     # dark/light toggle (reads/writes .dark class on <html>)
-  NavLinks.tsx        # active-aware nav links (models / videos / admin) ('use client')
+  NavLinks.tsx        # active-aware nav links (models / videos / pdfs / admin) ('use client')
 lib/
+  config.ts           # site-wide constants: SITE, NAV_LINKS, LAYOUT, GRID, CARD, UPLOAD, SEARCH
   db.ts               # CRUD over data/models.json; Model and Category types exported here
   videodb.ts          # CRUD over data/videos.json; Video and VideoCategory types exported here
+  pdfdb.ts            # CRUD over data/pdfs.json; Pdf and PdfCategory types exported here
 data/
   models.json         # source of truth for all model records
   videos.json         # source of truth for all video records (separate store)
+  pdfs.json           # source of truth for all PDF records (separate store)
 public/uploads/       # uploaded model files served statically
   glb/                # flat: <timestamp>-<name>.glb
   gltf/               # folder-per-model: <stem>/<timestamp>-<name>.gltf + textures + .bin
   videos/             # flat: <timestamp>-<name>.mp4 / .webm
-public/thumbnails/    # auto-generated WebP thumbnails: <model-id>.webp
+  pdfs/               # flat: <timestamp>-<name>.pdf
+public/thumbnails/    # auto-generated WebP thumbnails
+  <model-id>.webp     # 3D model thumbnails (root level)
+  pdfs/               # PDF page-1 thumbnails: <pdf-id>.webp
 public/textures/      # static textures used by the viewer (uv_checker.png)
+public/pdf.worker.min.mjs  # pdfjs-dist worker — copied from node_modules by postinstall; gitignored
 scripts/
   migrate-uploads.mjs # one-time migration: reorganises flat uploads into format-segregated folders
 ```
@@ -175,14 +199,43 @@ Video and model categories are **completely independent** — `VideoCategory` li
 
 **`VideoCard`** has no `ViewTransition` wrapper — view transitions are specific to the 3D model preview flow and are not used for videos.
 
+### PDF gallery
+
+`lib/pdfdb.ts` is the only place that reads or writes `data/pdfs.json`. It is a structural mirror of `lib/videodb.ts` with its own private `toSlug`/`uniqueSlug` helpers. Never share logic between `pdfdb.ts` and `videodb.ts`.
+
+The `Pdf` type:
+```ts
+type Pdf = {
+  id: string           // slug derived from name
+  name: string
+  category: string     // pdf category name, or 'uncategorised'
+  fileUrl: string      // /uploads/pdfs/<timestamp>-<name>.pdf
+  thumbnailUrl?: string // /thumbnails/pdfs/<id>.webp — page 1 snapshot
+  createdAt: string
+}
+```
+
+PDF and model/video categories are **completely independent** — `PdfCategory` lives only in `data/pdfs.json` and is managed by `/api/pdfs/categories`.
+
+**`PdfViewer`** (`components/PdfViewer.tsx`) — always import via `PdfViewerClient`, never directly from a Server Component (`ssr:false` is illegal in SC):
+- Worker set at module level: `pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'` — local file served from `public/`. **Do not switch to a CDN URL.** pdfjs-dist v6 creates module workers (`new Worker(url, {type:"module"})`); cross-origin module workers have stricter CORS rules and cause pdfjs to silently fall back to fake-worker mode, which can't decode image XObjects (text renders but images are blank).
+- **pdfjs-dist v6 API**: `getDocument` takes `{ url: string }` (not a plain string); `page.render` takes `{ canvas: null, canvasContext: ctx, viewport }` — **must** pass `canvas: null` with `canvasContext` to use the stable rendering path. The new `canvas: HTMLCanvasElement` API in v6 has a timing bug with image XObjects.
+- Page orientation is detected from page 1 during load (`calcPageSize`). Portrait pages use 420×594 px; landscape pages use 480×340 px. The `pageSize` state is set before `setLoading(false)` so `HTMLFlipBook` is initialised with correct dimensions immediately.
+- `usePortrait={false}` forces the double-page spread for all orientations.
+- `HTMLFlipBook` from `react-pageflip` wraps all `PdfPage` children (one plain `<div>` per page — react-pageflip requires direct div children).
+- Lazy rendering: each `PdfPage` only calls `pdf.getPage()` and renders to canvas when `shouldRender` is true (pages within ±3 of the current spread). Others show a blank white placeholder.
+- `onFlip` callback updates `currentPage` state (0-indexed page number of the first visible page).
+- All `useEffect` promise handlers guard with a `cancelled` flag — React Strict Mode double-invokes effects, and `task.destroy()` in the cleanup makes the first promise reject; without the guard the `.catch()` sets error state after the second effect has already cleared it.
+
 ### Admin panel
-- **The admin page has a Models/Videos tab switcher** at the top. Models tab contains the existing upload flow + categories + table + danger zone. Videos tab contains video categories + videos table + add video modal. State for each tab is fully isolated — no shared state variables.
+- **The admin page has a Models / Videos / PDFs tab switcher** at the top. Each tab contains its categories card + items table + upload/add modal. State for each tab is fully isolated — no shared state variables.
 - **Upload flow** is a **3-step modal**: step 1 uploads the model file via `XMLHttpRequest` (for real-time progress — button shows `"Uploading… 42%"` then `"Processing…"`); step 2 uploads textures/`.bin` (required for GLTF, skippable for GLB); step 3 triggers thumbnail generation. Client-side validation (200 MB limit, `.glb`/`.gltf` only) runs before the XHR is sent.
 - After step 1 succeeds, `pendingModel` state and `pendingModelRef` (a ref) are set to the new model. `pendingModelRef` is used inside callbacks (`handleGenDone`, texture upload handler) to avoid stale closures.
 - **Texture uploads** (step 2 and the per-row "Upload textures & .bin" button) post to `POST /api/models/[id]/textures` and show a fixed-position toast notification (success or error, auto-dismissed after 3 s). `uploadedTexturesIds: Set<string>` (session state) tracks which models have had textures uploaded so the table can switch from "Upload textures & .bin" to "Render" without requiring a page reload.
 - Per-model thumbnail column logic: if generating → spinner; if GLTF folder-based with no thumbnail and no session textures upload → "Upload textures & .bin" button; otherwise → "Render" (no thumbnail) or "Regenerate" (has thumbnail).
 - **Video add modal** is a **2-step modal**: step 1 is a source-type picker (YouTube URL / Vimeo URL / Upload file); step 2 shows either a URL form (JSON `POST /api/videos`) or a file upload form (XHR with progress, same pattern as the model upload). Uses separate `ref`s from the model upload form to avoid collisions.
-- **Danger zone** — a "Reset library" button at the bottom of the Models tab opens a confirmation dialog, then calls `POST /api/admin/reset` to wipe all models, files, and thumbnails. Video data is unaffected by this reset.
+- **Danger zone** — a "Reset library" button at the bottom of the Models tab opens a confirmation dialog, then calls `POST /api/admin/reset` to wipe all models, files, and thumbnails. Video and PDF data are unaffected by this reset.
+- **PDF upload modal** is a **1-step modal** (name + category + file). No texture step, no separate thumbnail step. Thumbnail is generated on demand via the Render/Regenerate button in the table, which triggers `PdfThumbnailCapture` — a hidden off-screen component that loads the PDF with pdfjs-dist, renders page 1 to a 256×256 canvas, captures as WebP, and POSTs to `/api/pdfs/[id]/thumbnail`. Only one PDF thumbnail capture runs at a time (`capturingPdf` state).
 
 ### Thumbnails
 - `ModelCard` shows a static `<img src={model.thumbnailUrl}>` when a thumbnail exists, or a placeholder cube icon when not.
@@ -200,8 +253,25 @@ Video and model categories are **completely independent** — `VideoCategory` li
 ### Styling
 Design tokens are CSS custom properties defined in `globals.css` (shadcn/ui-style palette). Tailwind v4 picks them up via `@theme inline`. Use semantic tokens (`bg-background`, `text-muted-foreground`, `border-border`, etc.) — never raw hex or hardcoded colors. Dark mode uses the `.dark` class on `<html>`.
 
+### Site-wide config
+`lib/config.ts` is the single source of truth for all values that would otherwise be duplicated across files. Import from it rather than repeating literals.
+
+| Export | What it controls |
+|--------|-----------------|
+| `SITE` | Site name and description (used in `<Metadata>` and the header logo) |
+| `NAV_LINKS` | Navigation items consumed by `NavLinks.tsx` |
+| `LAYOUT` | Shared container classes (`containerCls`, `headerHeight`, `mainPy`) used in `layout.tsx` |
+| `GRID` | Responsive card grid class string used in `ModelsClient` and `VideosClient` |
+| `CARD` | Card thumbnail height (`thumbnailClass`) used in `ModelCard` and `VideoCard` |
+| `UPLOAD.model` | Model `maxBytes` (200 MB) and `accept` array (`['.glb', '.gltf']`) — used by the API route and `AdminClient` |
+| `UPLOAD.video` | Video `maxBytes` (500 MB) and `accept` array (`['.mp4', '.webm']`) — used by the API route and `AdminClient` |
+| `UPLOAD.pdf` | PDF `maxBytes` (100 MB) and `accept` array (`['.pdf']`) — used by the API route and `AdminClient` |
+| `SEARCH` | `maxSuggestions` cap for the name-search autocomplete dropdown |
+
+If you add a new constant that is used in more than one file, put it here.
+
 ### Supported file formats
-`.glb` and `.gltf` only. Validation is enforced in both the API route (`app/api/models/route.ts`) and the admin upload form.
+`.glb`/`.gltf` for models; `.mp4`/`.webm` for videos; `.pdf` for PDFs. The canonical lists live in `UPLOAD.model.accept`, `UPLOAD.video.accept`, and `UPLOAD.pdf.accept` in `lib/config.ts` — all API routes and `AdminClient` import from there, so changing a format in one place updates all validation and file-input `accept` attributes automatically.
 
 ### LAN development
 `next.config.ts` auto-detects local network IPs via `os.networkInterfaces()` and adds them to `allowedDevOrigins`, so the dev server is reachable on the local network (e.g. from a phone) without CORS errors.

@@ -1,8 +1,7 @@
 import { getVideos, createVideo } from '@/lib/videodb'
 import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
-
-const MAX_VIDEO_SIZE = 500 * 1024 * 1024 // 500 MB
+import { UPLOAD } from '@/lib/config'
 
 function parseYouTubeId(url: string): string | null {
   try {
@@ -47,11 +46,11 @@ export async function POST(request: Request) {
     if (!name || !file) {
       return Response.json({ error: 'Name and file are required' }, { status: 400 })
     }
-    if (file.size > MAX_VIDEO_SIZE) {
+    if (file.size > UPLOAD.video.maxBytes) {
       return Response.json({ error: 'File exceeds 500 MB limit' }, { status: 400 })
     }
     const ext = path.extname(file.name).toLowerCase()
-    if (!['.mp4', '.webm'].includes(ext)) {
+    if (!UPLOAD.video.accept.includes(ext)) {
       return Response.json({ error: 'Only .mp4 and .webm files are allowed' }, { status: 400 })
     }
 

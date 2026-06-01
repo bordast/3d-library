@@ -4,13 +4,14 @@ import Link from 'next/link'
 import './globals.css'
 import ThemeToggle from '@/components/ThemeToggle'
 import NavLinks from '@/components/NavLinks'
+import { SITE, LAYOUT } from '@/lib/config'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-    title: '3D Library',
-    description: 'A curated collection of 3D models.',
+    title: SITE.name,
+    description: SITE.description,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,10 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
             <body className="min-h-screen bg-background font-sans antialiased">
                 <header style={{ viewTransitionName: 'site-header' }} className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                    <div className="mx-auto max-w-screen-xl px-4 flex h-14 items-center gap-6">
+                    <div className={`${LAYOUT.containerCls} flex ${LAYOUT.headerHeight} items-center gap-6`}>
                         <Link href="/" className="flex items-center gap-2 font-semibold text-foreground">
                             <BoxIcon />
-                            <span>3D Library</span>
+                            <span>{SITE.name}</span>
                         </Link>
                         <NavLinks />
                         <div className="ml-auto">
@@ -29,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                         </div>
                     </div>
                 </header>
-                <main className="mx-auto max-w-screen-xl px-4 py-8">
+                <main className={`${LAYOUT.containerCls} ${LAYOUT.mainPy}`}>
                     {children}
                 </main>
             </body>

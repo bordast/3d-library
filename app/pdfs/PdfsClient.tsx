@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect, useMemo } from 'react'
-import ModelCard from '@/components/ModelCard'
-import type { Model } from '@/lib/db'
+import PdfCard from '@/components/PdfCard'
+import type { Pdf } from '@/lib/pdfdb'
 import { GRID, SEARCH } from '@/lib/config'
 
-export default function ModelsClient({ models }: { models: Model[] }) {
+export default function PdfsClient({ pdfs }: { pdfs: Pdf[] }) {
     const [nameQuery, setNameQuery] = useState('')
     const [selectedCategory, setSelectedCategory] = useState('')
     const [nameOpen, setNameOpen] = useState(false)
@@ -17,14 +17,14 @@ export default function ModelsClient({ models }: { models: Model[] }) {
     const categories = useMemo(() => {
         const seen = new Set<string>()
         const result: string[] = []
-        for (const m of models) {
-            if (!seen.has(m.category)) {
-                seen.add(m.category)
-                result.push(m.category)
+        for (const p of pdfs) {
+            if (!seen.has(p.category)) {
+                seen.add(p.category)
+                result.push(p.category)
             }
         }
         return result.sort()
-    }, [models])
+    }, [pdfs])
 
     const nq = nameQuery.trim().toLowerCase()
 
@@ -32,20 +32,20 @@ export default function ModelsClient({ models }: { models: Model[] }) {
         if (nq.length === 0) return []
         const seen = new Set<string>()
         const result: string[] = []
-        for (const m of models) {
-            if (!seen.has(m.name) && m.name.toLowerCase().includes(nq)) {
-                seen.add(m.name)
-                result.push(m.name)
+        for (const p of pdfs) {
+            if (!seen.has(p.name) && p.name.toLowerCase().includes(nq)) {
+                seen.add(p.name)
+                result.push(p.name)
             }
         }
         return result.slice(0, SEARCH.maxSuggestions)
-    }, [models, nq])
+    }, [pdfs, nq])
 
-    const filtered = useMemo(() => models.filter(m => {
-        const nameMatch = nq.length === 0 || m.name.toLowerCase().includes(nq)
-        const catMatch = selectedCategory === '' || m.category === selectedCategory
+    const filtered = useMemo(() => pdfs.filter(p => {
+        const nameMatch = nq.length === 0 || p.name.toLowerCase().includes(nq)
+        const catMatch = selectedCategory === '' || p.category === selectedCategory
         return nameMatch && catMatch
-    }), [models, nq, selectedCategory])
+    }), [pdfs, nq, selectedCategory])
 
     useEffect(() => {
         function onPointerDown(e: PointerEvent) {
@@ -147,7 +147,7 @@ export default function ModelsClient({ models }: { models: Model[] }) {
                     )}
                 </div>
 
-                {/* Category custom dropdown */}
+                {/* Category dropdown */}
                 <div ref={catRef} className="relative sm:w-52 shrink-0">
                     <button
                         onClick={() => setCatOpen(o => !o)}
@@ -189,13 +189,12 @@ export default function ModelsClient({ models }: { models: Model[] }) {
                         </div>
                     )}
                 </div>
-
             </div>
 
             {/* Grid / empty state */}
             {filtered.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center border border-dashed border-border rounded-lg">
-                    <p className="text-muted-foreground text-sm">No models match your filters.</p>
+                    <p className="text-muted-foreground text-sm">No PDFs match your filters.</p>
                     <button
                         onClick={() => { setNameQuery(''); setSelectedCategory('') }}
                         className="mt-3 text-sm font-medium text-foreground underline underline-offset-4"
@@ -205,8 +204,8 @@ export default function ModelsClient({ models }: { models: Model[] }) {
                 </div>
             ) : (
                 <div className={GRID.cards}>
-                    {filtered.map(model => (
-                        <ModelCard key={model.id} model={model} />
+                    {filtered.map(pdf => (
+                        <PdfCard key={pdf.id} pdf={pdf} />
                     ))}
                 </div>
             )}

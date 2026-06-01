@@ -1,6 +1,7 @@
 import { getModels, createModel } from '@/lib/db'
 import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
+import { UPLOAD } from '@/lib/config'
 
 export async function GET() {
     const models = await getModels()
@@ -8,8 +9,6 @@ export async function GET() {
         headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
     })
 }
-
-const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200 MB
 
 export async function POST(request: Request) {
     const formData = await request.formData()
@@ -22,12 +21,12 @@ export async function POST(request: Request) {
         return Response.json({ error: 'Name and file are required' }, { status: 400 })
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size > UPLOAD.model.maxBytes) {
         return Response.json({ error: 'File exceeds 200 MB limit' }, { status: 400 })
     }
 
     const ext = path.extname(file.name).toLowerCase()
-    if (!['.glb', '.gltf'].includes(ext)) {
+    if (!UPLOAD.model.accept.includes(ext)) {
         return Response.json({ error: 'Only .glb, .gltf files allowed' }, { status: 400 })
     }
 
