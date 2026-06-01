@@ -1,19 +1,32 @@
 {
   "categories": [
     {
-      "id": "new",
-      "name": "new"
+      "id": "hanglabor",
+      "name": "hanglabor"
+    },
+    {
+      "id": "cat-2",
+      "name": "3d labor"
     }
   ],
   "videos": [
     {
-      "id": "name",
-      "name": "Name",
-      "category": "new",
-      "sourceType": "youtube",
-      "sourceUrl": "https://www.youtube.com/watch?v=VqvqLIYSvIw",
-      "thumbnailUrl": "https://img.youtube.com/vi/VqvqLIYSvIw/hqdefault.jpg",
-      "createdAt": "2026-05-28T07:48:54.307Z"
+      "id": "hang",
+      "name": "hang",
+      "category": "hanglabor",
+      "sourceType": "upload",
+      "sourceUrl": "/uploads/videos/1780255612554-bordasTamas_hanglabor_2_feleves_01.mp4",
+      "createdAt": "2026-05-31T19:26:52.580Z",
+      "thumbnailUrl": "/thumbnails/videos/hang.webp"
+    },
+    {
+      "id": "3d-labor",
+      "name": "3d labor",
+      "category": "3d labor",
+      "sourceType": "upload",
+      "sourceUrl": "/uploads/videos/1780256151646-bordas_tamas_csabito_melyseg_feleves_feladat_05_pre_render_01.mp4",
+      "createdAt": "2026-05-31T19:35:51.657Z",
+      "thumbnailUrl": "/thumbnails/videos/3d-labor.webp"
     }
   ]
 }
